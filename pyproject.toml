@@ -1,0 +1,17 @@
+[project]
+name = "yelena-v3"
+version = "3.0.0-dev"
+description = "Yelena V3 — Plataforma modular de IA"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]

@@ -1,0 +1,6 @@
+# Yelena V3 — dependências base
+# Core não requer dependências externas pesadas.
+
+# Dev / testes
+pytest>=8.0
+pytest-asyncio>=0.23
