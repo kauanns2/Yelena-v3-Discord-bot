@@ -47,8 +47,9 @@ AÇÃO PERIGOSA → autorização
 
 - [x] Módulo 1 — Core & Kernel
 - [x] Módulo 2 — Configuration
-- [ ] Módulo 3 — Neural Web
-- [ ] Módulos 4–16
+- [x] Módulo 3 — Neural Web
+- [ ] Módulo 4 — Event Bus
+- [ ] Módulos 5–16
 
 ## Desenvolvimento
 
