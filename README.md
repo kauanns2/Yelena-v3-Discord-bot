@@ -1,0 +1,53 @@
+# Yelena V3
+
+Plataforma modular de IA com identidade, personalidade, memória, raciocínio e segurança arquitetural.
+
+## Arquitetura
+
+Yelena V3 é composta por 16 módulos principais:
+
+1. **Core & Kernel** — Fundação operacional
+2. **Configuration** — Configuração centralizada
+3. **Neural Web** — Teia de conexões e sinais
+4. **Event Bus** — Comunicação por eventos
+5. **Memory System** — Memória dinâmica
+6. **Knowledge System** — Conhecimento estruturado
+7. **Cognitive Context** — Contexto cognitivo seletivo
+8. **Emotion & Affective State** — Estados afetivos
+9. **Personality & Behavioral Identity** — Identidade comportamental
+10. **Reasoning & Decision** — Raciocínio e decisões
+11. **Conversation & Dialogue** — Gestão de conversas
+12. **Language & Response Generation** — Geração linguística
+13. **Action & Tool Execution** — Execução controlada de ações
+14. **Security & Authorization** — Segurança e autorização
+15. **Observability & Diagnostics** — Observabilidade
+16. **Runtime & Orchestration** — Orquestração do sistema
+
+## Princípio central
+
+Não executar todos os módulos em toda mensagem.
+O Runtime combina apenas os sistemas necessários conforme intenção, contexto, complexidade e risco.
+
+### Liberdade vs Controle
+
+```
+PENSAR       → livre
+ANALISAR     → livre
+PLANEJAR     → livre
+SUGERIR      → livre
+DISCORDAR    → livre
+
+EXECUTAR     → autorização
+ACESSAR      → permissão
+MODIFICAR    → controle
+AÇÃO PERIGOSA → autorização
+```
+
+## Status
+
+- [x] Módulo 1 — Core & Kernel (em implementação)
+- [ ] Módulos 2–16
+
+## Desenvolvimento
+
+Python 3.11+
