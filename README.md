@@ -45,9 +45,16 @@ AÇÃO PERIGOSA → autorização
 
 ## Status
 
-- [x] Módulo 1 — Core & Kernel (em implementação)
-- [ ] Módulos 2–16
+- [x] Módulo 1 — Core & Kernel
+- [x] Módulo 2 — Configuration
+- [ ] Módulo 3 — Neural Web
+- [ ] Módulos 4–16
 
 ## Desenvolvimento
 
 Python 3.11+
+
+```bash
+pip install -r requirements.txt
+pytest
+```
