@@ -59,7 +59,7 @@ AÇÃO PERIGOSA → autorização
 - [x] Módulo 12 — Language
 - [x] Módulo 13 — Action
 - [x] Módulo 14 — Security
-- [ ] Módulo 15 — Observability
+- [x] Módulo 15 — Observability
 - [ ] Módulo 16 — Runtime
 
 ## Desenvolvimento
