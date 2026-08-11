@@ -51,8 +51,9 @@ AÇÃO PERIGOSA → autorização
 - [x] Módulo 4 — Event Bus
 - [x] Módulo 5 — Memory System
 - [x] Módulo 6 — Knowledge System
-- [ ] Módulo 7 — Cognitive Context
-- [ ] Módulos 8–16
+- [x] Módulo 7 — Cognitive Context
+- [ ] Módulo 8 — Emotion & Affective State
+- [ ] Módulos 9–16
 
 ## Desenvolvimento
 
