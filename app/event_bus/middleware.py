@@ -10,17 +10,16 @@ from app.event_bus.models.event import Event
 logger = logging.getLogger(__name__)
 
 Middleware = Callable[[Event], Event | None]
-# Retornar None = drop event
 
 
 class MiddlewarePipeline:
     def __init__(self) -> None:
         self._middlewares: list[Middleware] = []
 
-    def use(self, middleware: Middleware) -> None:
+    def add(self, middleware: Middleware) -> None:
         self._middlewares.append(middleware)
 
-    def run(self, event: Event) -> Event | None:
+    def process(self, event: Event) -> Event | None:
         current: Event | None = event
         for mw in self._middlewares:
             if current is None:
@@ -33,7 +32,7 @@ class MiddlewarePipeline:
         return current
 
 
-def ttl_middleware(event: Event) -> Event | None:
+def drop_expired_middleware(event: Event) -> Event | None:
     if event.is_expired:
         logger.debug("event expired dropped", extra={"event_id": event.id})
         return None
@@ -43,6 +42,6 @@ def ttl_middleware(event: Event) -> Event | None:
 def logging_middleware(event: Event) -> Event | None:
     logger.debug(
         "event through middleware",
-        extra={"event": event.name, "source": event.source, "id": event.id},
+        extra={"event": event.name, "source": event.source, "event_id": event.id},
     )
     return event

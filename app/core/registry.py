@@ -13,9 +13,9 @@ logger = logging.getLogger(__name__)
 
 
 class ModuleRegistry:
-    """Mantém o registro dos módulos da Yelena.
+    """Registro central de módulos.
 
-    Preparado para integração futura com a Teia Neural.
+    Não controla lifecycle — apenas cataloga o que existe.
     """
 
     def __init__(self) -> None:
@@ -28,7 +28,7 @@ class ModuleRegistry:
                 context={"module_id": module.id},
             )
         self._modules[module.id] = module
-        logger.info("module registered", extra={"module_id": module.id, "name": module.name})
+        logger.info("module registered", extra={"module_id": module.id, "module_name": module.name})
 
     def unregister(self, module_id: ModuleId) -> ModuleInfo:
         if module_id not in self._modules:
@@ -55,17 +55,17 @@ class ModuleRegistry:
     def has(self, module_id: ModuleId) -> bool:
         return module_id in self._modules
 
-    def list_modules(self) -> list[ModuleInfo]:
-        return list(self._modules.values())
-
     def list_ids(self) -> list[ModuleId]:
         return list(self._modules.keys())
 
-    def __len__(self) -> int:
-        return len(self._modules)
+    def list_modules(self) -> list[ModuleInfo]:
+        return list(self._modules.values())
 
     def __iter__(self) -> Iterator[ModuleInfo]:
         return iter(self._modules.values())
 
+    def __len__(self) -> int:
+        return len(self._modules)
+
     def __contains__(self, module_id: object) -> bool:
-        return isinstance(module_id, str) and module_id in self._modules
+        return module_id in self._modules
