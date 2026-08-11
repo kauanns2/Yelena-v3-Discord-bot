@@ -4,50 +4,40 @@ Plataforma modular de IA com identidade, personalidade, memória, raciocínio e 
 
 ## Arquitetura (16 módulos)
 
-1. **Core & Kernel** — Fundação operacional
-2. **Configuration** — Configuração centralizada
-3. **Neural Web** — Teia de conexões e sinais
-4. **Event Bus** — Comunicação por eventos
-5. **Memory System** — Memória dinâmica
-6. **Knowledge System** — Conhecimento estruturado
-7. **Cognitive Context** — Contexto cognitivo seletivo
-8. **Emotion & Affective State** — Estados afetivos
-9. **Personality & Behavioral Identity** — Identidade comportamental
-10. **Reasoning & Decision** — Raciocínio e decisões
-11. **Conversation & Dialogue** — Gestão de conversas
-12. **Language & Response Generation** — Geração linguística
-13. **Action & Tool Execution** — Execução controlada de ações
-14. **Security & Authorization** — Segurança e autorização
-15. **Observability & Diagnostics** — Observabilidade
-16. **Runtime & Orchestration** — Orquestração do sistema
+1. Core & Kernel
+2. Configuration
+3. Neural Web
+4. Event Bus
+5. Memory System
+6. Knowledge System
+7. Cognitive Context
+8. Emotion & Affective State
+9. Personality & Behavioral Identity
+10. Reasoning & Decision
+11. Conversation & Dialogue
+12. Language & Response Generation
+13. Action & Tool Execution
+14. Security & Authorization
+15. Observability & Diagnostics
+16. Runtime & Orchestration
 
 ## Princípio central
 
 Não executar todos os módulos em toda mensagem.
-O Runtime combina apenas os sistemas necessários conforme intenção, contexto, complexidade e risco.
-
-### Liberdade vs Controle
+O Runtime combina apenas o necessário conforme intenção, contexto, complexidade e risco.
 
 ```
-PENSAR       → livre
-ANALISAR     → livre
-PLANEJAR     → livre
-SUGERIR      → livre
-DISCORDAR    → livre
-
-EXECUTAR     → autorização
-ACESSAR      → permissão
-MODIFICAR    → controle
-AÇÃO PERIGOSA → autorização
+PENSAR → livre
+EXECUTAR → autorização
 ```
 
 ## Status
 
-**Arquitetura principal completa (16/16)**
+- [x] Módulos 1–16 (fundação)
+- [x] Integration gateway + entrypoint de produção
+- [ ] Intermediário Discord (externo — já existente, não duplicar)
 
-- [x] Módulos 1–16 implementados na fundação
-
-## Uso rápido
+## Uso local (Runtime)
 
 ```bash
 pip install -r requirements.txt
@@ -59,17 +49,63 @@ from app.runtime import YelenaRuntime
 
 rt = YelenaRuntime()
 rt.start()
-
 print(rt.process("oi", user_id="kauanns2").text)
-
 rt.stop()
 ```
 
-## Próximos passos (fora da arquitetura principal)
+## Integração com o intermediário existente
 
-- FEATURE / EXTENSION / PLUGIN / INTEGRATION
-- Discord adapter
-- Provider de IA real
-- Persistência durável
-- Voice
-- Testes de integração amplos
+O bot Discord **não** vive neste Core. O intermediário chama a Yelena assim:
+
+### Opção A — Python
+
+```python
+from app.integration import YelenaGateway, ProcessMessageRequest
+
+gw = YelenaGateway()
+gw.start()
+resp = gw.process(ProcessMessageRequest(
+    message="oi",
+    user_id="discord:123",
+    session_id="channel:456",
+    channel="discord",
+))
+# resp.text → enviar de volta ao Discord
+gw.stop()
+```
+
+### Opção B — HTTP (Render / produção)
+
+```bash
+python main.py
+# ou: uvicorn main:app --host 0.0.0.0 --port $PORT
+```
+
+```http
+POST /v1/process
+Content-Type: application/json
+
+{"message": "oi", "user_id": "discord:123", "channel": "discord"}
+```
+
+```http
+GET /health
+```
+
+Documentação completa: `app/integration/README.md`
+
+## Render
+
+| Campo | Valor |
+|-------|--------|
+| Runtime | Python 3.11+ |
+| Build | `pip install -r requirements.txt` |
+| Start | `python main.py` |
+| Health check | `GET /health` |
+| Env | `PORT` (automático), `YELENA_HTTP_API_KEY` (opcional), `YELENA_LOG_LEVEL` |
+
+**Não** coloque token Discord neste serviço se o intermediário já o possui.
+
+## Secrets
+
+Nunca commitar tokens. Use `.env.example` só como referência de nomes.
