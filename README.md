@@ -49,8 +49,9 @@ AÇÃO PERIGOSA → autorização
 - [x] Módulo 2 — Configuration
 - [x] Módulo 3 — Neural Web
 - [x] Módulo 4 — Event Bus
-- [ ] Módulo 5 — Memory System
-- [ ] Módulos 6–16
+- [x] Módulo 5 — Memory System
+- [ ] Módulo 6 — Knowledge System
+- [ ] Módulos 7–16
 
 ## Desenvolvimento
 
