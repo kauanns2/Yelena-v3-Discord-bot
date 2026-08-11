@@ -53,8 +53,9 @@ AÇÃO PERIGOSA → autorização
 - [x] Módulo 6 — Knowledge System
 - [x] Módulo 7 — Cognitive Context
 - [x] Módulo 8 — Emotion & Affective State
-- [ ] Módulo 9 — Personality
-- [ ] Módulos 10–16
+- [x] Módulo 9 — Personality
+- [ ] Módulo 10 — Reasoning
+- [ ] Módulos 11–16
 
 ## Desenvolvimento
 
