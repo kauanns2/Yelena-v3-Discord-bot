@@ -3,6 +3,7 @@ name = "yelena-v3"
 version = "3.0.0-dev"
 description = "Yelena V3 — Plataforma modular de IA"
 requires-python = ">=3.11"
+# Espelho das deps de produção. Render usa requirements.txt.
 dependencies = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.27",

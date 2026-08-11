@@ -4,43 +4,27 @@ Plataforma modular de IA com identidade, personalidade, memória, raciocínio e 
 
 ## Arquitetura (16 módulos)
 
-1. Core & Kernel
-2. Configuration
-3. Neural Web
-4. Event Bus
-5. Memory System
-6. Knowledge System
-7. Cognitive Context
-8. Emotion & Affective State
-9. Personality & Behavioral Identity
-10. Reasoning & Decision
-11. Conversation & Dialogue
-12. Language & Response Generation
-13. Action & Tool Execution
-14. Security & Authorization
-15. Observability & Diagnostics
-16. Runtime & Orchestration
+Core · Configuration · Neural Web · Event Bus · Memory · Knowledge · Context · Emotion · Personality · Reasoning · Conversation · Language · Action · Security · Observability · Runtime
 
-## Princípio central
-
-Não executar todos os módulos em toda mensagem.
-O Runtime combina apenas o necessário conforme intenção, contexto, complexidade e risco.
+## Princípio
 
 ```
 PENSAR → livre
 EXECUTAR → autorização
 ```
 
+O Runtime ativa só os módulos necessários por mensagem.
+
 ## Status
 
 - [x] Módulos 1–16 (fundação)
 - [x] Integration gateway + entrypoint de produção
-- [ ] Intermediário Discord (externo — já existente, não duplicar)
+- [x] Preparação para Render (infra only)
 
-## Uso local (Runtime)
+## Desenvolvimento
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 pytest
 ```
 
@@ -53,59 +37,36 @@ print(rt.process("oi", user_id="kauanns2").text)
 rt.stop()
 ```
 
-## Integração com o intermediário existente
+## Produção / Render
 
-O bot Discord **não** vive neste Core. O intermediário chama a Yelena assim:
+```bash
+pip install -r requirements.txt
+python main.py
+```
 
-### Opção A — Python
+| Item | Valor |
+|------|--------|
+| Python | >= 3.11 (`runtime.txt`) |
+| Build | `pip install -r requirements.txt` |
+| Start | `python main.py` |
+| Health | `GET /health` |
+
+Detalhes: [`RENDER.md`](RENDER.md) · Contrato do intermediário: [`app/integration/README.md`](app/integration/README.md)
+
+## Integração (intermediário existente)
 
 ```python
 from app.integration import YelenaGateway, ProcessMessageRequest
 
 gw = YelenaGateway()
 gw.start()
-resp = gw.process(ProcessMessageRequest(
-    message="oi",
-    user_id="discord:123",
-    session_id="channel:456",
-    channel="discord",
-))
-# resp.text → enviar de volta ao Discord
+resp = gw.process(ProcessMessageRequest(message="oi", user_id="discord:123"))
+# resp.text → Discord via intermediário
 gw.stop()
 ```
 
-### Opção B — HTTP (Render / produção)
-
-```bash
-python main.py
-# ou: uvicorn main:app --host 0.0.0.0 --port $PORT
-```
-
-```http
-POST /v1/process
-Content-Type: application/json
-
-{"message": "oi", "user_id": "discord:123", "channel": "discord"}
-```
-
-```http
-GET /health
-```
-
-Documentação completa: `app/integration/README.md`
-
-## Render
-
-| Campo | Valor |
-|-------|--------|
-| Runtime | Python 3.11+ |
-| Build | `pip install -r requirements.txt` |
-| Start | `python main.py` |
-| Health check | `GET /health` |
-| Env | `PORT` (automático), `YELENA_HTTP_API_KEY` (opcional), `YELENA_LOG_LEVEL` |
-
-**Não** coloque token Discord neste serviço se o intermediário já o possui.
+Ou HTTP: `POST /v1/process`
 
 ## Secrets
 
-Nunca commitar tokens. Use `.env.example` só como referência de nomes.
+Nunca no Git. Use Environment do Render / host. Veja `.env.example`.
