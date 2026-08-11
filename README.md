@@ -56,8 +56,9 @@ AÇÃO PERIGOSA → autorização
 - [x] Módulo 9 — Personality
 - [x] Módulo 10 — Reasoning
 - [x] Módulo 11 — Conversation
-- [ ] Módulo 12 — Language
-- [ ] Módulos 13–16
+- [x] Módulo 12 — Language
+- [ ] Módulo 13 — Action
+- [ ] Módulos 14–16
 
 ## Desenvolvimento
 
