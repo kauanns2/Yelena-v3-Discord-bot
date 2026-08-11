@@ -55,8 +55,9 @@ AÇÃO PERIGOSA → autorização
 - [x] Módulo 8 — Emotion & Affective State
 - [x] Módulo 9 — Personality
 - [x] Módulo 10 — Reasoning
-- [ ] Módulo 11 — Conversation
-- [ ] Módulos 12–16
+- [x] Módulo 11 — Conversation
+- [ ] Módulo 12 — Language
+- [ ] Módulos 13–16
 
 ## Desenvolvimento
 
