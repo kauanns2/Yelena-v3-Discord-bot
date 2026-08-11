@@ -2,9 +2,7 @@
 
 Plataforma modular de IA com identidade, personalidade, memória, raciocínio e segurança arquitetural.
 
-## Arquitetura
-
-Yelena V3 é composta por 16 módulos principais:
+## Arquitetura (16 módulos)
 
 1. **Core & Kernel** — Fundação operacional
 2. **Configuration** — Configuração centralizada
@@ -45,28 +43,33 @@ AÇÃO PERIGOSA → autorização
 
 ## Status
 
-- [x] Módulo 1 — Core & Kernel
-- [x] Módulo 2 — Configuration
-- [x] Módulo 3 — Neural Web
-- [x] Módulo 4 — Event Bus
-- [x] Módulo 5 — Memory System
-- [x] Módulo 6 — Knowledge System
-- [x] Módulo 7 — Cognitive Context
-- [x] Módulo 8 — Emotion & Affective State
-- [x] Módulo 9 — Personality
-- [x] Módulo 10 — Reasoning
-- [x] Módulo 11 — Conversation
-- [x] Módulo 12 — Language
-- [x] Módulo 13 — Action
-- [x] Módulo 14 — Security
-- [x] Módulo 15 — Observability
-- [ ] Módulo 16 — Runtime
+**Arquitetura principal completa (16/16)**
 
-## Desenvolvimento
+- [x] Módulos 1–16 implementados na fundação
 
-Python 3.11+
+## Uso rápido
 
 ```bash
 pip install -r requirements.txt
 pytest
 ```
+
+```python
+from app.runtime import YelenaRuntime
+
+rt = YelenaRuntime()
+rt.start()
+
+print(rt.process("oi", user_id="kauanns2").text)
+
+rt.stop()
+```
+
+## Próximos passos (fora da arquitetura principal)
+
+- FEATURE / EXTENSION / PLUGIN / INTEGRATION
+- Discord adapter
+- Provider de IA real
+- Persistência durável
+- Voice
+- Testes de integração amplos
