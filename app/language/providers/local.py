@@ -7,7 +7,6 @@ Gera respostas curtas com cara de personalidade (não é LLM real).
 from __future__ import annotations
 
 import random
-import re
 
 from app.language.constants import GenerationStatus, LengthHint, LENGTH_LIMITS
 from app.language.models.generation import GenerationRequest, GenerationResult
@@ -106,17 +105,16 @@ class LocalTemplateProvider(LanguageProvider):
                 ]
             )
 
-        # statement / geral — respostas com postura, sem eco
         return self._answer_statement(user_hint, tone, warmth, humor)
 
     def _user_hint(self, request: GenerationRequest) -> str:
-        """Extrai pista do usuário sem devolver o texto cru como resposta."""
-        # instructions às vezes carregam pontos; não usar como eco
+        ut = str(request.metadata.get("user_text") or "").strip()
+        if ut:
+            return ut[:200]
         for block in request.context_blocks:
             b = str(block).strip()
             if b and not b.lower().startswith("com base"):
                 return b[:200]
-        # key_points instrucionais não são fala do usuário
         return ""
 
     def _answer_question(self, hint: str, tone: str, warmth: float) -> str:
@@ -187,7 +185,6 @@ class LocalTemplateProvider(LanguageProvider):
         if any(k in low for k in ("sente", "sentir", "emoção", "program")):
             return self._answer_question(hint, tone, warmth)
 
-        # default: postura, sem repetir o usuário
         options = [
             "Entendi. O que você quer fazer com isso?",
             "Ok. Quer que eu só escute ou que eu opine?",
