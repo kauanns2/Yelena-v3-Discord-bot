@@ -6,7 +6,7 @@ import logging
 import os
 from typing import Any, Callable
 
-from app.bridge.constants import ContinuityNamespace, PlatformId
+from app.bridge.constants import ContinuityNamespace
 from app.bridge.continuity.store import ContinuityStore
 from app.bridge.evolution.ledger import EvolutionLedger
 from app.bridge.platforms.base import InboundMessage, OutboundMessage
@@ -18,13 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class BridgeManager:
-    """Ponto central do Módulo 17.
-
-    - Registra plataformas (Discord e futuras)
-    - Mantém cofre de continuidade
-    - Ledger de evolução
-    - Fronteira de resiliência ao processar mensagens
-    """
+    """Ponto central do Módulo 17."""
 
     def __init__(self, process_fn: Callable[..., Any] | None = None) -> None:
         self.platforms = PlatformRegistry()
@@ -36,7 +30,6 @@ class BridgeManager:
         self._session_map: dict[str, str] = {}
 
     def set_process_fn(self, fn: Callable[..., Any]) -> None:
-        """fn(message, user_id=, session_id=, channel=, correlation_id=) -> object com .text"""
         self._process_fn = fn
 
     @property
@@ -45,18 +38,20 @@ class BridgeManager:
 
     def start(self) -> None:
         self._started = True
-        # carregar session map leve
         stored = self.continuity.get(ContinuityNamespace.SESSION, "map", default={})
         if isinstance(stored, dict):
             self._session_map.update({str(k): str(v) for k, v in stored.items()})
         logger.info(
-            "bridge system started",
-            extra={"platforms": self.platforms.list_ids()},
+            "bridge system started platforms=%s",
+            self.platforms.list_ids(),
         )
 
     def stop(self) -> None:
         self._started = False
-        self.continuity.put(ContinuityNamespace.SESSION, "map", dict(self._session_map))
+        try:
+            self.continuity.put(ContinuityNamespace.SESSION, "map", dict(self._session_map))
+        except Exception:
+            logger.exception("failed to persist session map")
 
     def register_discord(self, token: str | None = None) -> DiscordAdapter:
         adapter = DiscordAdapter(token=token)
@@ -65,8 +60,6 @@ class BridgeManager:
         return adapter
 
     def handle_inbound(self, inbound: InboundMessage) -> OutboundMessage:
-        """Entrada unificada de qualquer plataforma."""
-
         def _process() -> OutboundMessage:
             if self._process_fn is None:
                 return OutboundMessage(
@@ -76,7 +69,10 @@ class BridgeManager:
                 )
 
             session_key = f"{inbound.platform}:{inbound.channel_id}:{inbound.user_id}"
-            session_id = inbound.session_id or self._session_map.get(session_key)
+            # só reutiliza session_id se já mapeada pelo Bridge (UUID real do Runtime)
+            session_id = self._session_map.get(session_key)
+            if inbound.session_id and inbound.session_id in self._session_map.values():
+                session_id = inbound.session_id
 
             result = self._process_fn(
                 inbound.text,
@@ -89,28 +85,38 @@ class BridgeManager:
             text = getattr(result, "text", None) or str(result)
             new_session = getattr(result, "session_id", None)
             if new_session:
-                self._session_map[session_key] = new_session
-                # persist sessão para continuidade
-                self.continuity.put(
-                    ContinuityNamespace.SESSION,
-                    session_key,
-                    new_session,
-                    metadata={"platform": inbound.platform, "user_id": inbound.user_id},
-                )
+                self._session_map[session_key] = str(new_session)
+                try:
+                    self.continuity.put(
+                        ContinuityNamespace.SESSION,
+                        session_key,
+                        str(new_session),
+                        metadata={
+                            "platform": inbound.platform,
+                            "user_id": inbound.user_id,
+                        },
+                    )
+                except Exception:
+                    logger.exception("continuity session put failed")
 
-            # snapshot leve de uso
-            self.evolution.record(
-                kind="interaction",
-                description=f"message via {inbound.platform}",
-                source_module="bridge",
-                payload={
-                    "platform": inbound.platform,
-                    "user_id": inbound.user_id,
-                    "complexity": getattr(getattr(result, "complexity", None), "value", None)
-                    or str(getattr(result, "complexity", "")),
-                },
-                confidence=float(getattr(result, "confidence", 0.5) or 0.5),
-            )
+            try:
+                complexity = getattr(result, "complexity", None)
+                complexity_val = (
+                    complexity.value if hasattr(complexity, "value") else str(complexity or "")
+                )
+                self.evolution.record(
+                    kind="interaction",
+                    description=f"message via {inbound.platform}",
+                    source_module="bridge",
+                    payload={
+                        "platform": inbound.platform,
+                        "user_id": inbound.user_id,
+                        "complexity": complexity_val,
+                    },
+                    confidence=float(getattr(result, "confidence", 0.5) or 0.5),
+                )
+            except Exception:
+                logger.exception("evolution record failed")
 
             return OutboundMessage(
                 text=text,
@@ -119,17 +125,19 @@ class BridgeManager:
                 reply_to=inbound.id,
             )
 
-        outbound = self.resilience.run(
-            "handle_inbound",
-            _process,
-            fallback=OutboundMessage(
+        try:
+            return _process()
+        except Exception:
+            logger.exception(
+                "bridge handle_inbound failed platform=%s user=%s",
+                inbound.platform,
+                inbound.user_id,
+            )
+            return OutboundMessage(
                 text="Algo deu errado por aqui. Pode repetir?",
                 channel_id=inbound.channel_id,
                 user_id=inbound.user_id,
-            ),
-        )
-        assert outbound is not None
-        return outbound
+            )
 
     def deposit(
         self,
@@ -138,7 +146,6 @@ class BridgeManager:
         value: Any,
         **metadata: Any,
     ) -> None:
-        """Módulos 1–16 podem depositar dados para uso futuro."""
         self.continuity.put(namespace, key, value, metadata=metadata or None)
 
     def recall(
@@ -147,7 +154,6 @@ class BridgeManager:
         key: str,
         default: Any = None,
     ) -> Any:
-        """Recupera dado guardado — evita falha se módulo pedir depois."""
         return self.continuity.get(namespace, key, default=default)
 
     def health(self) -> dict[str, Any]:

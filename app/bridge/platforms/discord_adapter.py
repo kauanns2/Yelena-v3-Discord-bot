@@ -61,8 +61,8 @@ class DiscordAdapter(PlatformAdapter):
             async def on_ready(self) -> None:  # type: ignore[override]
                 adapter._started = True
                 logger.info(
-                    "discord adapter online",
-                    extra={"user": str(self.user)},
+                    "discord adapter online user=%s",
+                    str(self.user),
                 )
 
             async def on_message(self, message: discord.Message) -> None:  # type: ignore[override]
@@ -71,12 +71,13 @@ class DiscordAdapter(PlatformAdapter):
                 if adapter._handler is None:
                     return
 
+                # session_id fica None: Runtime/Conversation cria e o Bridge mapeia
                 inbound = InboundMessage(
                     text=message.content or "",
                     user_id=str(message.author.id),
                     channel_id=str(message.channel.id),
                     platform=PlatformId.DISCORD.value,
-                    session_id=f"discord:{message.channel.id}",
+                    session_id=None,
                     correlation_id=str(message.id),
                     metadata={
                         "guild_id": str(message.guild.id) if message.guild else None,
@@ -104,7 +105,6 @@ class DiscordAdapter(PlatformAdapter):
                         pass
 
         self._client = YelenaClient(intents=intents)
-        # start in background — caller manages the task
         import asyncio
 
         self._task = asyncio.create_task(self._client.start(self._token))
