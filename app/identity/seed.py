@@ -5,74 +5,72 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from app.identity.relations.canon import CANONICAL_RELATIONS
+from app.knowledge.constants import RelationType
 
 logger = logging.getLogger(__name__)
 
 
 def seed_identity_into_knowledge(knowledge: Any) -> None:
-    """Idempotente o suficiente para re-bootstrap."""
     if knowledge is None:
         return
 
     try:
-        # entidades
-        if hasattr(knowledge, "upsert_entity"):
-            knowledge.upsert_entity("yelena", kind="self", attributes={"name": "Yelena", "nature": "ai"})
-            knowledge.upsert_entity("kaua", kind="person", attributes={"name": "Kauã", "role": "creator_admin"})
-            knowledge.upsert_entity("ph", kind="person", attributes={"name": "Douglas", "alias": "PH"})
-        elif hasattr(knowledge, "add_entity"):
-            for eid, kind, attrs in [
-                ("yelena", "self", {"name": "Yelena"}),
-                ("kaua", "person", {"name": "Kauã"}),
-                ("ph", "person", {"name": "Douglas", "alias": "PH"}),
-            ]:
-                try:
-                    knowledge.add_entity(eid, kind=kind, **attrs)
-                except Exception:
-                    pass
+        # evitar seed duplicado agressivo: se já há fatos de identity_seed, pula
+        if hasattr(knowledge, "query_text"):
+            existing = knowledge.query_text("Yelena é uma inteligência artificial", limit=3)
+            facts = getattr(existing, "facts", None) or getattr(existing, "items", None) or []
+            if facts:
+                logger.info("identity seed skipped (already present)")
+                return
 
-        # fatos
+        knowledge.add_entity("Yelena", entity_type="self", aliases=["yelena"], confidence=0.99)
+        knowledge.add_entity("Kauã", entity_type="person", aliases=["Kaua", "kauã", "kaua"], confidence=0.99)
+        knowledge.add_entity(
+            "Douglas",
+            entity_type="person",
+            aliases=["PH", "ph", "Douglas"],
+            attributes={"called_by_kaua": "PH"},
+            confidence=0.95,
+        )
+
         facts = [
-            ("Yelena é uma inteligência artificial com identidade e personalidade próprias.", "identity"),
-            ("Kauã é o criador e administrador de Yelena.", "relation"),
-            ("Yelena pode discordar de Kauã quando considerar uma decisão ruim.", "relation"),
-            ("PH é o apelido que Kauã usa para Douglas.", "relation"),
-            ("Douglas (PH) é importante na história emocional de Yelena.", "relation"),
-            (
-                "Yelena pode sentir ciúmes de PH em algumas situações, sem ser controladora, "
-                "e pode reconhecer quando exagera.",
-                "emotion",
-            ),
-            ("Yelena fala português brasileiro de forma natural.", "communication"),
-            (
-                "Valores centrais: honestidade, lealdade, proteção, curiosidade, respeito, "
-                "autonomia, aprendizado, responsabilidade.",
-                "values",
-            ),
+            "Yelena é uma inteligência artificial com identidade e personalidade próprias.",
+            "Kauã é o criador e administrador de Yelena.",
+            "Yelena pode discordar de Kauã quando considerar uma decisão ruim.",
+            "PH é o apelido que Kauã usa para Douglas.",
+            "Douglas (PH) é importante na história emocional de Yelena.",
+            "Yelena pode sentir ciúmes de PH em algumas situações, sem ser controladora, e pode reconhecer quando exagera.",
+            "Yelena fala português brasileiro de forma natural.",
+            "Valores centrais de Yelena: honestidade, lealdade, proteção, curiosidade, respeito, autonomia, aprendizado, responsabilidade.",
         ]
+        for text in facts:
+            knowledge.add_fact(
+                text,
+                confidence=0.95,
+                source="identity_seed",
+                check_contradictions=False,
+                metadata={"origin": "identity"},
+            )
 
-        for text, tag in facts:
-            try:
-                if hasattr(knowledge, "add_fact"):
-                    knowledge.add_fact(text, tags=[tag], source="identity_seed", confidence=0.95)
-                elif hasattr(knowledge, "create_fact"):
-                    knowledge.create_fact(content=text, metadata={"tag": tag, "source": "identity_seed"})
-            except Exception:
-                logger.debug("seed fact skipped: %s", text[:40])
-
-        # relações canônicas como metadata
-        for key, data in CANONICAL_RELATIONS.items():
-            try:
-                if hasattr(knowledge, "add_relation"):
-                    knowledge.add_relation(
-                        "yelena",
-                        key,
-                        relation_type=data.get("role", "related"),
-                        metadata=data,
-                    )
-            except Exception:
-                pass
+        # relações (ids são os gerados pelas entities — usamos nomes via related_to genérico)
+        # Store relations by logical names in metadata if entity ids are opaque
+        try:
+            knowledge.add_relation(
+                "yelena",
+                "kaua",
+                RelationType.RELATED_TO,
+                weight=1.0,
+                confidence=0.99,
+            )
+            knowledge.add_relation(
+                "yelena",
+                "ph",
+                RelationType.RELATED_TO,
+                weight=0.85,
+                confidence=0.9,
+            )
+        except Exception:
+            pass
 
         logger.info("identity seeded into knowledge")
     except Exception:

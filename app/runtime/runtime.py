@@ -22,7 +22,6 @@ class YelenaRuntime:
     def __init__(self) -> None:
         self.state = RuntimeState.CREATED
 
-        # módulos (preenchidos no bootstrap)
         self.configuration: Any = None
         self.neural: Any = None
         self.event_bus: Any = None
@@ -37,12 +36,11 @@ class YelenaRuntime:
         self.actions: Any = None
         self.security: Any = None
         self.observability: Any = None
-        self.bridge: Any = None  # Módulo 17
+        self.bridge: Any = None
 
         self._pipeline: RequestPipeline | None = None
 
     def bootstrap(self) -> None:
-        """Instancia módulos na ordem segura de dependência."""
         self.state = RuntimeState.STARTING
 
         from app.configuration import ConfigurationManager
@@ -81,11 +79,8 @@ class YelenaRuntime:
         self.conversation = ConversationManager()
         self.language = LanguageManager()
         self.actions = ActionManager()
-
-        # Módulo 17 — borda (depois dos 16 base)
         self.bridge = BridgeManager()
 
-        # wire health checkers
         for name, mod in [
             ("configuration", self.configuration),
             ("security", self.security),
@@ -106,7 +101,6 @@ class YelenaRuntime:
                 self.observability.register_health(name, mod.health)
 
         self._pipeline = RequestPipeline(self)
-        # Bridge processa via Runtime
         self.bridge.set_process_fn(self.process)
         logger.info("runtime bootstrap complete")
 
@@ -114,7 +108,6 @@ class YelenaRuntime:
         if self.state == RuntimeState.CREATED:
             self.bootstrap()
 
-        # start order: infra → cognitive → interface → bridge
         for mod in [
             self.observability,
             self.security,
@@ -133,6 +126,14 @@ class YelenaRuntime:
         ]:
             if mod and hasattr(mod, "start"):
                 mod.start()
+
+        # identidade canônica após knowledge start
+        try:
+            from app.identity import seed_identity_into_knowledge
+
+            seed_identity_into_knowledge(self.knowledge)
+        except Exception:
+            logger.exception("identity seed on start failed")
 
         self.state = RuntimeState.READY
         if self.observability:
