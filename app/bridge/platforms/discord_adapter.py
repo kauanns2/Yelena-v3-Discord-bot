@@ -1,9 +1,17 @@
-"""Adapter Discord — fino. Não contém lógica cognitiva."""
+"""Adapter Discord — fino. Não contém lógica cognitiva.
+
+Modos de resposta (YELENA_DISCORD_MODE):
+  mention  — só menção, reply ao bot, DM ou nome "Yelena"
+  smart    — mention + interjeição rara em tópicos de interesse (padrão)
+  always   — responde tudo no canal (debug)
+"""
 
 from __future__ import annotations
 
 import logging
 import os
+import random
+import re
 from typing import Any
 
 from app.bridge.constants import PlatformId
@@ -17,6 +25,13 @@ from app.bridge.platforms.base import (
 
 logger = logging.getLogger(__name__)
 
+NAME_RE = re.compile(r"\byelena\b", re.I)
+INTEREST_RE = re.compile(
+    r"\b(yelena|ia|intelig[eê]ncia|mem[oó]ria|personalidade|emo[cç][aã]o|"
+    r"sentir|pensar|arquitetura|seguran[cç]a|discord|projeto)\b",
+    re.I,
+)
+
 
 class DiscordAdapter(PlatformAdapter):
     """Conecta ao Discord e encaminha mensagens ao handler do Bridge."""
@@ -27,6 +42,7 @@ class DiscordAdapter(PlatformAdapter):
         self._client: Any = None
         self._started = False
         self._task: Any = None
+        self._mode = (os.getenv("YELENA_DISCORD_MODE", "smart") or "smart").strip().lower()
 
     @property
     def platform_id(self) -> str:
@@ -34,6 +50,52 @@ class DiscordAdapter(PlatformAdapter):
 
     def set_handler(self, handler: MessageHandler) -> None:
         self._handler = handler
+
+    def _should_respond(self, message: Any) -> bool:
+        """Decide se a Yelena fala nesta mensagem."""
+        if self._mode == "always":
+            return True
+
+        # DM sempre
+        if getattr(message.channel, "type", None) is not None:
+            try:
+                import discord
+
+                if message.channel.type == discord.ChannelType.private:
+                    return True
+            except Exception:
+                pass
+        if getattr(message.guild, "id", None) is None and not hasattr(message.channel, "guild"):
+            # heurística DM
+            if message.guild is None:
+                return True
+
+        content = message.content or ""
+
+        # menção direta ao bot
+        me = getattr(self._client, "user", None)
+        if me is not None and me in getattr(message, "mentions", []):
+            return True
+
+        # reply à mensagem do bot
+        ref = getattr(message, "reference", None)
+        if ref is not None and getattr(ref, "resolved", None) is not None:
+            author = getattr(ref.resolved, "author", None)
+            if author is not None and me is not None and author.id == me.id:
+                return True
+
+        # chamou pelo nome
+        if NAME_RE.search(content):
+            return True
+
+        if self._mode == "mention":
+            return False
+
+        # smart: interjeição rara se o assunto interessa
+        if INTEREST_RE.search(content) and random.random() < 0.12:
+            return True
+
+        return False
 
     async def start(self) -> None:
         if not self._token:
@@ -60,18 +122,18 @@ class DiscordAdapter(PlatformAdapter):
         class YelenaClient(discord.Client):
             async def on_ready(self) -> None:  # type: ignore[override]
                 adapter._started = True
-                logger.info(
-                    "discord adapter online user=%s",
-                    str(self.user),
-                )
+                logger.info("discord adapter online user=%s mode=%s", str(self.user), adapter._mode)
 
             async def on_message(self, message: discord.Message) -> None:  # type: ignore[override]
                 if message.author.bot:
                     return
                 if adapter._handler is None:
                     return
+                if not (message.content or "").strip():
+                    return
+                if not adapter._should_respond(message):
+                    return
 
-                # session_id fica None: Runtime/Conversation cria e o Bridge mapeia
                 inbound = InboundMessage(
                     text=message.content or "",
                     user_id=str(message.author.id),
@@ -84,8 +146,6 @@ class DiscordAdapter(PlatformAdapter):
                         "author_name": str(message.author),
                     },
                 )
-                if not inbound.text.strip():
-                    return
 
                 try:
                     result = adapter._handler(inbound)
@@ -108,7 +168,7 @@ class DiscordAdapter(PlatformAdapter):
         import asyncio
 
         self._task = asyncio.create_task(self._client.start(self._token))
-        logger.info("discord adapter starting")
+        logger.info("discord adapter starting mode=%s", self._mode)
 
     async def stop(self) -> None:
         self._started = False
@@ -137,4 +197,5 @@ class DiscordAdapter(PlatformAdapter):
             "platform": self.platform_id,
             "status": "online" if self._started else "offline",
             "token_configured": bool(self._token),
+            "mode": self._mode,
         }
