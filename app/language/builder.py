@@ -29,6 +29,7 @@ class InstructionBuilder:
                 "correlation_id": getattr(spec, "correlation_id", None),
                 "should_ask_clarification": getattr(spec, "should_ask_clarification", False),
                 "clarification_question": getattr(spec, "clarification_question", None),
+                "metadata": getattr(spec, "metadata", {}),
             }
 
         length_raw = data.get("max_length", "medium")
@@ -57,6 +58,7 @@ class InstructionBuilder:
                 "decision_summary": data.get("decision_summary", ""),
                 "should_ask_clarification": data.get("should_ask_clarification", False),
                 "clarification_question": data.get("clarification_question"),
+                "user_text": (data.get("metadata") or {}).get("user_text", ""),
             },
         )
 

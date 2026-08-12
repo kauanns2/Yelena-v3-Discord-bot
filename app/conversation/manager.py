@@ -104,7 +104,6 @@ class ConversationManager:
             correlation_id=correlation_id,
         )
 
-        # topic tracking simples
         if intent.intent_type not in {IntentType.GREETING, IntentType.FAREWELL}:
             topic = content[:40].strip()
             if topic:
@@ -147,7 +146,6 @@ class ConversationManager:
     ) -> ResponseSpecification:
         intent_type = turn.intent.intent_type if turn.intent else IntentType.UNKNOWN
 
-        # tone a partir de emotion + personality
         tone = "neutral"
         valence = emotion_summary.get("valence", 0.0)
         if valence > 0.3:
@@ -170,7 +168,6 @@ class ConversationManager:
 
         if intent_type == IntentType.GREETING:
             key_points.append("responder saudação de forma natural")
-            # resíduo de contexto (ex: preocupação anterior)
             if context_summary:
                 key_points.append("considerar contexto recente se relevante")
             max_length = "short"
@@ -188,10 +185,7 @@ class ConversationManager:
         elif intent_type == IntentType.QUESTION:
             key_points.append("responder à pergunta com base no contexto")
             if not context_summary and not decision_summary:
-                should_clarify = True
-                clarification = "Pode detalhar um pouco mais o que você quer saber?"
-                self._metrics["clarifications"] += 1
-                session.status = SessionStatus.WAITING_CLARIFICATION
+                should_clarify = False
 
         else:
             key_points.append("responder de forma coerente com o estado da conversa")
@@ -218,6 +212,7 @@ class ConversationManager:
             metadata={
                 "topic": session.current_topic,
                 "emotion_primary": emotion_summary.get("primary"),
+                "user_text": turn.content,
             },
         )
 
