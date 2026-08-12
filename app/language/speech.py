@@ -1,7 +1,6 @@
-"""SUTAC / coloração de fala da Yelena.
+"""SUTAC da Yelena — fonética paulista + leve R vibrante russo.
 
-Paulista informal + leve sotaque (r um pouco mais marcado, como influência russa),
-sem virar caricatura. Erros leves e hesitações são permitidos.
+Documentação: docs/PHONETICS.md
 """
 
 from __future__ import annotations
@@ -9,22 +8,62 @@ from __future__ import annotations
 import random
 import re
 
+# Palavras onde um R mais “presente” soa natural (não força em artigo/pronome)
+_R_FOCUS = re.compile(
+    r"\b(claro|certo|melhor|pior|verdade|lembrar|lembrar|primeiro|"
+    r"problema|importante|respeito|errado|correto|responder|"
+    r"procurar|trabalhar|falar|agora|porta|forte|normal|"
+    r"histórico|memória|lembrança|criar|criador)\b",
+    re.I,
+)
 
-def color_speech(text: str, *, intensity: float = 0.35) -> str:
-    """Aplica naturalidade leve no texto final."""
+SPEECH_STYLE_HINT = (
+    "Fala português brasileiro paulista informal: tô, pra, cê, né, tipo, hm. "
+    "S em coda alveolar (sem chiado carioca). "
+    "R: base brasileira, mas com leve cor russa — R mais presente/vibrado só de vez em quando, "
+    "nunca caricatura (sem porrrrta). "
+    "Pode hesitar, cortar frase e errar português de leve. "
+    "Nada de tom de assistente corporativo nem desculpa de IA a cada mensagem."
+)
+
+
+def color_speech(text: str, *, intensity: float = 0.4) -> str:
+    """Aplica naturalidade paulista + toque raro de R russo."""
     if not text or not text.strip():
         return text
 
     out = text.strip()
 
-    # ocasionalmente começa com hesitação
-    if random.random() < 0.18 * intensity * 2:
-        out = random.choice(["hm... ", "ah, ", "olha... ", "sei lá, ", "tipo... "]) + out[0].lower() + out[1:]
+    # hesitação inicial ocasional
+    if random.random() < 0.22 * max(intensity, 0.2):
+        lead = random.choice(["hm... ", "ah, ", "olha... ", "sei lá, ", "tipo... ", "pô, "])
+        if out[0].isupper() and len(out) > 1:
+            out = lead + out[0].lower() + out[1:]
+        else:
+            out = lead + out
 
-    # contrações comuns se ainda estiver formal demais
-    replacements = [
+    # contrações (1–2 por fala)
+    out = _apply_contractions(out)
+
+    # R híbrido: no máx. uma palavra marcada
+    if random.random() < 0.28 * max(intensity, 0.25):
+        out = _russian_r_touch(out)
+
+    # final menos “perfeito”
+    if random.random() < 0.14 and not out.endswith(("?", "...", "!")):
+        out = out.rstrip(".") + random.choice(["...", " né?", " sei", ""])
+
+    # limpa espaços duplos
+    out = re.sub(r"\s{2,}", " ", out).strip()
+    return out
+
+
+def _apply_contractions(text: str) -> str:
+    pairs = [
         (r"\bvocê está\b", "cê tá"),
         (r"\bVocê está\b", "Cê tá"),
+        (r"\bvocê tá\b", "cê tá"),
+        (r"\bVocê tá\b", "Cê tá"),
         (r"\bestou\b", "tô"),
         (r"\bEstou\b", "Tô"),
         (r"\bpara o\b", "pro"),
@@ -32,47 +71,51 @@ def color_speech(text: str, *, intensity: float = 0.35) -> str:
         (r"\bpara\b", "pra"),
         (r"\bvocê\b", "cê"),
         (r"\bVocê\b", "Cê"),
+        (r"\bnão é\b", "né"),
     ]
-    if random.random() < 0.55:
-        for pat, rep in replacements:
-            out = re.sub(pat, rep, out, count=1)
-
-    # leve "r" mais marcado (influência russa) em poucas palavras — não em tudo
-    if random.random() < 0.25 * intensity * 2:
-        out = _soft_russian_r(out)
-
-    # às vezes deixa frase menos "perfeita" (reticências / corte)
-    if random.random() < 0.12 and not out.endswith("?"):
-        out = out.rstrip(".") + random.choice(["...", ".", " né?", " sei"])
-
-    return out
+    # aplica no máximo 2 substituições
+    count = 0
+    for pat, rep in pairs:
+        if count >= 2:
+            break
+        new, n = re.subn(pat, rep, text, count=1)
+        if n:
+            text = new
+            count += 1
+    return text
 
 
-def _soft_russian_r(text: str) -> str:
-    """Marca o r de forma sutil em 1 palavra (não vira meme)."""
-    words = text.split()
-    candidates = []
-    for i, w in enumerate(words):
-        core = re.sub(r"[^\wáéíóúãõâêôàçÁÉÍÓÚÃÕÂÊÔÀÇ]", "", w)
-        if len(core) >= 4 and ("r" in core.lower() or "rr" in core.lower()):
-            if not core.lower().startswith("http"):
-                candidates.append(i)
-    if not candidates:
-        return text
-    i = random.choice(candidates)
-    w = words[i]
-    # alonga um r interno: melhor -> melhrr / melhórr (leve)
-    def _stretch(m: re.Match[str]) -> str:
-        return m.group(0) + ("r" if random.random() < 0.5 else "")
+def _russian_r_touch(text: str) -> str:
+    """Marca leve o R em UMA palavra-alvo (vibrante presente, não meme)."""
+    matches = list(_R_FOCUS.finditer(text))
+    if not matches:
+        # fallback: qualquer palavra ≥4 com r
+        words = text.split()
+        idxs = [
+            i
+            for i, w in enumerate(words)
+            if len(re.sub(r"\W", "", w)) >= 4 and "r" in w.lower()
+        ]
+        if not idxs:
+            return text
+        i = random.choice(idxs)
+        words[i] = _stretch_r(words[i])
+        return " ".join(words)
 
-    words[i] = re.sub(r"r+", _stretch, w, count=1, flags=re.I)
-    return " ".join(words)
+    m = random.choice(matches)
+    start, end = m.span()
+    word = text[start:end]
+    return text[:start] + _stretch_r(word) + text[end:]
 
 
-SPEECH_STYLE_HINT = (
-    "Fala como pessoa real: português brasileiro informal (cara paulista), "
-    "contrações (tô, pra, cê), hesitações (hm, tipo, sei lá). "
-    "Pode errar português de leve. "
-    "Leve sotaque: r um pouco mais puxado (influência russa), sem exagerar. "
-    "Nada de tom de assistente corporativo nem desculpa de IA a cada frase."
-)
+def _stretch_r(word: str) -> str:
+    """Alonga no máximo um grupo de r — sinal de vibrante, não 'rrrr'."""
+
+    def repl(m: re.Match[str]) -> str:
+        g = m.group(0)
+        if len(g) >= 2:
+            return g  # já tem rr
+        # 50% duplica uma vez só
+        return g + ("r" if random.random() < 0.55 else "")
+
+    return re.sub(r"r+", repl, word, count=1, flags=re.I)
