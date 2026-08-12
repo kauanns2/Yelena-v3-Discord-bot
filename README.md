@@ -2,23 +2,21 @@
 
 Plataforma modular de IA com identidade, personalidade, memória, raciocínio e segurança.
 
-## Mapa rápido
+## Documentação de estrutura
 
-Veja **[docs/STRUCTURE.md](docs/STRUCTURE.md)** — módulo → submódulos → pastas.
+- **[docs/MODULES.md](docs/MODULES.md)** — catálogo módulo → submódulo → pastas
+- **[docs/STRUCTURE.md](docs/STRUCTURE.md)** — camadas + Teia Neural + regras
+
+## Camadas (visão rápida)
 
 ```text
-EDGE:        bridge, integration
-ORQUESTRA:   runtime, core, configuration
-SINAIS:      neural, event_bus
-COGNIÇÃO:    memory, knowledge, context, emotion, personality, identity, reasoning
-EXPRESSÃO:   conversation, language, actions
-PROTEÇÃO:    security, observability
+EDGE:           bridge (17), integration
+ORQUESTRAÇÃO:   runtime (16), core (1), configuration (2)
+SINAIS:         neural (3), event_bus (4)
+COGNIÇÃO:       memory, knowledge, context, emotion, personality, identity, reasoning
+EXPRESSÃO:      conversation, language, actions | voice (futuro)
+PROTEÇÃO:       security, observability
 ```
-
-## Identidade
-
-`app/identity/` guarda o **brief** e relações canônicas (Kauã, PH).
-No start do Runtime, esses fatos são semeados no Knowledge.
 
 ## Produção
 
@@ -27,17 +25,16 @@ pip install -r requirements.txt
 python main.py
 ```
 
-Env importantes:
-
-| Var | Uso |
+| Env | Uso |
 |-----|-----|
 | `DISCORD_TOKEN` | bot online via Bridge |
 | `YELENA_DISCORD_MODE` | `smart` / `mention` / `always` |
-| `YELENA_HTTP_API_KEY` | protege `/v1/process` |
+| `YELENA_HTTP_API_KEY` | protege POST /v1/process |
 
-## Status
+Health: `GET /health`
 
-- [x] Módulos 1–17
-- [x] Identity layer (brief + Kauã/PH)
-- [ ] Provider LLM real no Language
-- [ ] Voice/áudio (futuro `app/voice/`)
+## Princípio
+
+Runtime orquestra. Neural documenta e propaga.  
+Cada módulo tem uma responsabilidade.  
+Persona (Kauã, PH, valores) vive em `identity/` + Knowledge — não no Discord.

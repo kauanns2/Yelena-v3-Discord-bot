@@ -127,6 +127,14 @@ class YelenaRuntime:
             if mod and hasattr(mod, "start"):
                 mod.start()
 
+        # Teia Neural: registrar topologia canônica dos módulos
+        try:
+            from app.neural.wiring import wire_canonical_topology
+
+            wire_canonical_topology(self.neural)
+        except Exception:
+            logger.exception("neural topology wiring failed")
+
         # identidade canônica após knowledge start
         try:
             from app.identity import seed_identity_into_knowledge
@@ -194,7 +202,17 @@ class YelenaRuntime:
         report = None
         if self.observability:
             report = self.observability.check_health()
-        return {
+        payload: dict[str, Any] = {
             "state": self.state.value,
             "health": report.to_dict() if report else {},
         }
+        if self.neural and hasattr(self.neural, "snapshot"):
+            try:
+                payload["neural"] = {
+                    "stats": self.neural.topology.stats()
+                    if hasattr(self.neural, "topology")
+                    else {}
+                }
+            except Exception:
+                pass
+        return payload
