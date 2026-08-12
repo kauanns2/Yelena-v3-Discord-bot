@@ -22,7 +22,6 @@ class RequestPipeline:
         complexity = classify_complexity(request.message)
         modules_used: list[str] = []
 
-        # garantir sessão de conversa válida
         session_id = request.session_id
         if self._rt.conversation:
             existing = None
@@ -40,8 +39,8 @@ class RequestPipeline:
         decision_summary = ""
         personality_summary: dict[str, Any] = {}
         emotion_summary: dict[str, Any] = {}
+        identity_brief = ""
 
-        # --- TRIVIAL: fast path ---
         if complexity == Complexity.TRIVIAL:
             if self._rt.emotion:
                 emotion_summary = self._rt.emotion.get_summary()
@@ -61,8 +60,6 @@ class RequestPipeline:
                         modules_used.append("memory")
                 except Exception:
                     pass
-
-        # --- SIMPLE / NORMAL / COMPLEX / CRITICAL ---
         else:
             if self._rt.emotion:
                 emotion_summary = self._rt.emotion.get_summary()
@@ -120,7 +117,18 @@ class RequestPipeline:
                 except Exception:
                     logger.exception("security authorize failed")
 
-        # Conversation → ResponseSpecification
+        # Identity brief (sempre que der)
+        try:
+            from app.identity import build_identity_brief
+
+            identity_brief = build_identity_brief(
+                emotion_summary=emotion_summary,
+                personality_summary=personality_summary,
+            )
+            modules_used.append("identity")
+        except Exception:
+            logger.exception("identity brief failed")
+
         spec = None
         if self._rt.conversation and session_id:
             try:
@@ -135,10 +143,17 @@ class RequestPipeline:
                 )
                 if "conversation" not in modules_used:
                     modules_used.append("conversation")
+                # anexa brief no spec pra Language
+                if spec is not None and identity_brief:
+                    if not getattr(spec, "metadata", None):
+                        spec.metadata = {}
+                    spec.metadata["identity_brief"] = identity_brief
+                    if identity_brief not in (spec.context_summary or []):
+                        # não joga brief no context_summary (evita eco); só metadata
+                        pass
             except Exception:
                 logger.exception("conversation process_message failed")
 
-        # Language → texto
         text = "..."
         confidence = 0.5
         if self._rt.language and spec is not None:
@@ -153,9 +168,10 @@ class RequestPipeline:
         elif spec is not None:
             text = "; ".join(spec.key_points) if spec.key_points else request.message
         else:
-            # fallback mínimo se conversation falhou
-            text = "Oi." if request.message.strip().lower() in {"oi", "olá", "ola", "hey", "hi"} else (
-                "Entendi. Pode me dizer um pouco mais?"
+            text = (
+                "Oi"
+                if request.message.strip().lower() in {"oi", "olá", "ola", "hey", "hi"}
+                else "Hm, não peguei direito. Repete?"
             )
 
         if self._rt.emotion and complexity != Complexity.TRIVIAL:
