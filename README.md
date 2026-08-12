@@ -2,40 +2,24 @@
 
 Plataforma modular de IA com identidade, personalidade, memória, raciocínio e segurança arquitetural.
 
-## Arquitetura (16 módulos)
+## Arquitetura
 
-Core · Configuration · Neural Web · Event Bus · Memory · Knowledge · Context · Emotion · Personality · Reasoning · Conversation · Language · Action · Security · Observability · Runtime
-
-## Princípio
+**Módulos 1–16** — núcleo cognitivo e operacional  
+**Módulo 17 — Bridge** — plataformas (Discord+), continuidade, evolução, resiliência
 
 ```
-PENSAR → livre
-EXECUTAR → autorização
+Discord / futuros bots
+        ↓
+   Bridge (17)
+        ↓
+ Runtime (16) + módulos 1–15
 ```
-
-O Runtime ativa só os módulos necessários por mensagem.
 
 ## Status
 
-- [x] Módulos 1–16 (fundação)
-- [x] Integration gateway + entrypoint de produção
-- [x] Preparação para Render (infra only)
-
-## Desenvolvimento
-
-```bash
-pip install -r requirements-dev.txt
-pytest
-```
-
-```python
-from app.runtime import YelenaRuntime
-
-rt = YelenaRuntime()
-rt.start()
-print(rt.process("oi", user_id="kauanns2").text)
-rt.stop()
-```
+- [x] Módulos 1–16
+- [x] Módulo 17 — Platform Bridge, Continuity & Evolution
+- [x] Entrypoint de produção (Render)
 
 ## Produção / Render
 
@@ -44,29 +28,23 @@ pip install -r requirements.txt
 python main.py
 ```
 
-| Item | Valor |
-|------|--------|
-| Python | >= 3.11 (`runtime.txt`) |
-| Build | `pip install -r requirements.txt` |
-| Start | `python main.py` |
-| Health | `GET /health` |
+| Env | Uso |
+|-----|-----|
+| `DISCORD_TOKEN` | deixa o bot Discord online via Bridge |
+| `YELENA_HTTP_API_KEY` | protege `POST /v1/process` |
+| `YELENA_CONTINUITY_DIR` | pasta do cofre de continuidade |
 
-Detalhes: [`RENDER.md`](RENDER.md) · Contrato do intermediário: [`app/integration/README.md`](app/integration/README.md)
+Health: `GET /health`
 
-## Integração (intermediário existente)
+## Discord online
 
-```python
-from app.integration import YelenaGateway, ProcessMessageRequest
+1. Crie o bot no [Discord Developer Portal](https://discord.com/developers/applications)
+2. Ative **Message Content Intent**
+3. No Render, adicione `DISCORD_TOKEN=...`
+4. Redeploy
 
-gw = YelenaGateway()
-gw.start()
-resp = gw.process(ProcessMessageRequest(message="oi", user_id="discord:123"))
-# resp.text → Discord via intermediário
-gw.stop()
-```
+O Bridge sobe o adapter automaticamente no startup.
 
-Ou HTTP: `POST /v1/process`
+## Continuidade
 
-## Secrets
-
-Nunca no Git. Use Environment do Render / host. Veja `.env.example`.
+O Módulo 17 guarda snapshots para uso futuro, reduzindo falhas quando um módulo pedir dado que não está na RAM.

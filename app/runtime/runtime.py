@@ -37,6 +37,7 @@ class YelenaRuntime:
         self.actions: Any = None
         self.security: Any = None
         self.observability: Any = None
+        self.bridge: Any = None  # Módulo 17
 
         self._pipeline: RequestPipeline | None = None
 
@@ -58,6 +59,7 @@ class YelenaRuntime:
         from app.actions import ActionManager
         from app.security import SecurityManager
         from app.observability import ObservabilityManager
+        from app.bridge import BridgeManager
 
         self.configuration = ConfigurationManager()
         self.configuration.load()
@@ -80,6 +82,9 @@ class YelenaRuntime:
         self.language = LanguageManager()
         self.actions = ActionManager()
 
+        # Módulo 17 — borda (depois dos 16 base)
+        self.bridge = BridgeManager()
+
         # wire health checkers
         for name, mod in [
             ("configuration", self.configuration),
@@ -95,18 +100,21 @@ class YelenaRuntime:
             ("actions", self.actions),
             ("event_bus", self.event_bus),
             ("neural", self.neural),
+            ("bridge", self.bridge),
         ]:
             if hasattr(mod, "health"):
                 self.observability.register_health(name, mod.health)
 
         self._pipeline = RequestPipeline(self)
+        # Bridge processa via Runtime
+        self.bridge.set_process_fn(self.process)
         logger.info("runtime bootstrap complete")
 
     def start(self) -> None:
         if self.state == RuntimeState.CREATED:
             self.bootstrap()
 
-        # start order: infra → cognitive → interface
+        # start order: infra → cognitive → interface → bridge
         for mod in [
             self.observability,
             self.security,
@@ -121,6 +129,7 @@ class YelenaRuntime:
             self.conversation,
             self.language,
             self.actions,
+            self.bridge,
         ]:
             if mod and hasattr(mod, "start"):
                 mod.start()
@@ -133,6 +142,7 @@ class YelenaRuntime:
     def stop(self) -> None:
         self.state = RuntimeState.STOPPING
         for mod in [
+            self.bridge,
             self.actions,
             self.language,
             self.conversation,

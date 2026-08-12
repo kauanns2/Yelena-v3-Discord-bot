@@ -1,8 +1,4 @@
-"""HTTP JSON API opcional para o intermediário.
-
-Usada quando o intermediário chama a Yelena via HTTP (ex.: Render).
-Não implementa Discord. Não armazena tokens Discord.
-"""
+"""HTTP JSON API + gancho do Bridge/Discord."""
 
 from __future__ import annotations
 
@@ -24,7 +20,7 @@ def create_app(gateway: YelenaGateway | None = None) -> FastAPI:
     gw = gateway or YelenaGateway()
     app = FastAPI(
         title="Yelena V3 Integration API",
-        description="Borda HTTP para o intermediário Discord + IA existente",
+        description="Borda HTTP + Bridge (Módulo 17)",
         version="3.0.0-dev",
     )
 
@@ -32,22 +28,24 @@ def create_app(gateway: YelenaGateway | None = None) -> FastAPI:
 
     def _check_auth(x_api_key: str | None) -> None:
         if not api_key:
-            return  # auth desabilitada se não configurada
+            return
         if not x_api_key or x_api_key != api_key:
             raise HTTPException(status_code=401, detail="unauthorized")
 
     @app.on_event("startup")
-    def _startup() -> None:
+    async def _startup() -> None:
         try:
             gw.start()
+            await gw.start_discord_if_configured()
             logger.info("integration HTTP API startup complete")
         except Exception:
             logger.exception("failed to start YelenaGateway")
             raise
 
     @app.on_event("shutdown")
-    def _shutdown() -> None:
+    async def _shutdown() -> None:
         try:
+            await gw.stop_discord()
             gw.stop()
         except Exception:
             logger.exception("error during gateway shutdown")
@@ -64,6 +62,7 @@ def create_app(gateway: YelenaGateway | None = None) -> FastAPI:
             "docs": "/docs",
             "health": "/health",
             "process": "POST /v1/process",
+            "bridge": "module-17",
         }
 
     @app.post("/v1/process")
@@ -89,6 +88,5 @@ def create_app(gateway: YelenaGateway | None = None) -> FastAPI:
             logger.exception("process failed")
             raise HTTPException(status_code=500, detail="internal error") from exc
 
-    # referência para testes
     app.state.gateway = gw  # type: ignore[attr-defined]
     return app
