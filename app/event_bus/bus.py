@@ -14,7 +14,7 @@ from app.event_bus.constants import (
 )
 from app.event_bus.dispatcher import Dispatcher
 from app.event_bus.errors import EventValidationError, EventExpiredError, QueueFullError
-from app.event_bus.middleware import MiddlewarePipeline, ttl_middleware
+from app.event_bus.middleware import MiddlewarePipeline, drop_expired_middleware
 from app.event_bus.models.event import Event
 from app.event_bus.models.subscription import Subscription
 from app.event_bus.types import SubscriptionId
@@ -32,7 +32,7 @@ class EventBus:
         self._subscriptions: dict[SubscriptionId, Subscription] = {}
         self._dispatcher = Dispatcher()
         self._middleware = MiddlewarePipeline()
-        self._middleware.use(ttl_middleware)
+        self._middleware.add(drop_expired_middleware)
         self._max_queue = max_queue
         self._recent_ids: dict[str, float] = {}  # dedup simples
         self._dedup_ttl = 30.0
@@ -57,7 +57,7 @@ class EventBus:
         logger.info("event bus stopped")
 
     def use(self, middleware: Callable[[Event], Event | None]) -> None:
-        self._middleware.use(middleware)
+        self._middleware.add(middleware)
 
     def subscribe(
         self,
@@ -125,7 +125,7 @@ class EventBus:
             self._metrics["dropped_queue_full"] += 1
             raise QueueFullError("Event bus dedup queue is full")
 
-        processed = self._middleware.run(event)
+        processed = self._middleware.process(event)
         if processed is None:
             self._metrics["dropped_expired"] += 1
             event.status = EventStatus.EXPIRED
@@ -139,7 +139,7 @@ class EventBus:
             "event published",
             extra={
                 "event": event.name,
-                "id": event.id,
+                "event_id": event.id,
                 "delivered": result["delivered"],
                 "errors": result["errors"],
             },
