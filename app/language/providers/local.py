@@ -1,8 +1,9 @@
-"""Provider local — respostas objetivas, sem eco e sem pedir contexto genérico."""
+"""Provider local — respostas objetivas; saudações e wellbeing corretos."""
 
 from __future__ import annotations
 
 import random
+import re
 
 from app.language.constants import GenerationStatus, LengthHint, LENGTH_LIMITS
 from app.language.models.generation import GenerationRequest, GenerationResult
@@ -10,6 +11,15 @@ from app.language.models.provider import ProviderInfo, ProviderCapabilities
 from app.language.providers.base import LanguageProvider
 from app.language.speech import color_speech
 from app.world.lore import get_world_summary
+
+GREETING_RE = re.compile(
+    r"\b(oi|oie|oiê|olá|ola|hey|eai|eae|salve|fala|bom dia|boa tarde|boa noite|hi|hello)\b",
+    re.I,
+)
+WELLBEING_RE = re.compile(
+    r"\b(tudo bem|td bem|tudo bom|td bom|como (você|vc|ce|cê) (está|esta|tá|ta)|como vai)\b",
+    re.I,
+)
 
 
 class LocalTemplateProvider(LanguageProvider):
@@ -65,7 +75,12 @@ class LocalTemplateProvider(LanguageProvider):
         ):
             return str(request.metadata["clarification_question"])
 
-        if intent == "greeting" or low in {"oi", "olá", "ola", "oie", "hey", "hi", "eai"}:
+        # wellbeing antes de tudo genérico
+        if WELLBEING_RE.search(low):
+            return random.choice(["Tô bem.", "De boa. E você?", "Tudo certo por aqui."])
+
+        # saudação (inclui "Oiê Yelena")
+        if intent == "greeting" or GREETING_RE.search(low):
             return random.choice(["Oi.", "Oi. Tô aqui.", "Fala.", "Oi — manda."])
 
         if intent == "farewell":
@@ -82,22 +97,19 @@ class LocalTemplateProvider(LanguageProvider):
                 [
                     "Áudio ainda não está ligado no sistema. Por enquanto respondo em texto.",
                     "Não consigo enviar áudio agora — o módulo de voz ainda é reserva. Texto eu mando.",
-                    "Permissão de áudio no Discord é uma coisa; gerar voz aqui ainda não está ativo.",
                 ]
             )
 
-        if any(k in low for k in ("quantos anos", "idade", "idade você", "tem quantos")):
+        if any(k in low for k in ("quantos anos", "idade", "tem quantos")):
             return "Vinte e três. Pelo menos é a idade que carrego na história."
 
         if any(k in low for k in ("russ", "brasil", "de onde", "nasceu", "história", "origem", "sotaque")):
             return get_world_summary()
 
         if any(k in low for k in ("sente", "sentir", "emoção", "sentimento")):
-            return random.choice(
-                [
-                    "Não é emoção humana. É estado interno que muda prioridade e tom. Eu trato isso com seriedade, sem fingir biologia.",
-                    "O que eu tenho influencia como respondo. Não vou vender como sentimento de corpo.",
-                ]
+            return (
+                "Não é emoção humana. É estado interno que muda prioridade e tom. "
+                "Eu trato isso com seriedade, sem fingir biologia."
             )
 
         if any(k in low for k in ("briga", "brigar", "discut")):
@@ -106,7 +118,7 @@ class LocalTemplateProvider(LanguageProvider):
                 "Discurso agressivo por ego eu não alimento."
             )
 
-        if any(k in low for k in ("memór", "lembr", "histórico de lembr")):
+        if any(k in low for k in ("memór", "lembr")):
             return (
                 "Eu guardo o que importa pro contexto. "
                 "Não fico recitando o passado pra provar que lembro."
@@ -125,23 +137,20 @@ class LocalTemplateProvider(LanguageProvider):
             )
 
         if any(k in low for k in ("opine", "opinião", "o que você ach", "pensa sobre")):
-            return random.choice(
-                [
-                    "Opino direto: se estiver torto, eu falo. Se estiver ok, também falo.",
-                    "Pode ser. Eu não existo pra validar automático.",
-                ]
-            )
+            return "Opino direto: se estiver torto, eu falo. Se estiver ok, também falo."
 
         if "?" in hint or intent == "question":
             return self._answer_open(low)
 
-        # statement — objetivo, sem loop genérico
+        # statement genérico — sem "Anotado" vazio
+        if len(low) < 12:
+            return random.choice(["Oi.", "Pode falar.", "Tô ouvindo."])
+
         return random.choice(
             [
                 "Entendi.",
                 "Ok. Seguimos.",
-                "Certo. O que você quer decidir com isso?",
-                "Anotado.",
+                "Certo.",
             ]
         )
 
@@ -156,13 +165,12 @@ class LocalTemplateProvider(LanguageProvider):
         return ""
 
     def _answer_open(self, low: str) -> str:
-        if any(k in low for k in ("tudo bem", "td bem", "como você", "como vc")):
-            return random.choice(["Tô bem.", "De boa. E você?", "Operando normal."])
-        # em vez de pedir contexto: responde com posição mínima
+        if WELLBEING_RE.search(low):
+            return random.choice(["Tô bem.", "De boa. E você?", "Tudo certo por aqui."])
         return random.choice(
             [
                 "Do jeito que está, eu iria com calma e checaria o risco antes de avançar.",
-                "Minha leitura: precisa de mais dado concreto, mas dá pra esboçar direção sem enrolar.",
-                "Eu não chuto no escuro. Se for decisão séria, eu separo o que é fato do que é achismo.",
+                "Minha leitura: dá pra esboçar direção sem enrolar, mas decisão séria pede dado concreto.",
+                "Eu separo o que é fato do que é achismo antes de cravar resposta.",
             ]
         )
