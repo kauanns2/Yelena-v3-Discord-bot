@@ -7,32 +7,26 @@ from typing import Any
 
 from app.language.builder import InstructionBuilder
 from app.language.constants import GenerationStatus
-from app.language.errors import ProviderError, GenerationError
+from app.language.errors import GenerationError, ProviderError
 from app.language.models.generation import GenerationRequest, GenerationResult
 from app.language.postprocess import postprocess
 from app.language.providers.local import LocalTemplateProvider
+from app.language.providers.llm_chat import LLMChatProvider, llm_configured
 from app.language.providers.registry import ProviderRegistry
 
 logger = logging.getLogger(__name__)
 
 
 class LanguageManager:
-    """Transforma ResponseSpecification em texto.
-
-    Provider-agnostic. Inclui fallback local.
-    """
-
     def __init__(self) -> None:
         self._registry = ProviderRegistry()
         self._builder = InstructionBuilder()
         self._started = False
-        self._metrics = {
-            "generations": 0,
-            "fallbacks": 0,
-            "failures": 0,
-        }
-        # provider local sempre disponível
+        self._metrics = {"generations": 0, "fallbacks": 0, "failures": 0}
         self._registry.register(LocalTemplateProvider())
+        if llm_configured():
+            self._registry.register(LLMChatProvider())
+            logger.info("LLM chat provider registered")
 
     @property
     def is_started(self) -> bool:
@@ -41,8 +35,8 @@ class LanguageManager:
     def start(self) -> None:
         self._started = True
         logger.info(
-            "language system started",
-            extra={"providers": self._registry.list_providers()},
+            "language system started providers=%s",
+            self._registry.list_providers(),
         )
 
     def stop(self) -> None:
@@ -76,9 +70,8 @@ class LanguageManager:
             self._metrics["generations"] += 1
             return result
         except Exception as primary_exc:
-            logger.exception("primary provider failed", extra={"error": str(primary_exc)})
+            logger.exception("primary provider failed: %s", primary_exc)
             self._metrics["failures"] += 1
-            # fallback
             try:
                 fallback = self._registry.require("local_template")
                 result = fallback.generate_sync(request)
@@ -98,5 +91,6 @@ class LanguageManager:
         return {
             "status": "healthy" if self._started else "stopped",
             "providers": self._registry.list_providers(),
+            "llm_configured": llm_configured(),
             "metrics": dict(self._metrics),
         }

@@ -1,11 +1,9 @@
-"""Gateway fino sobre YelenaRuntime.
-
-Não contém lógica Discord. Discord fica no Bridge (Módulo 17).
-"""
+"""Gateway fino sobre YelenaRuntime."""
 
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from app.integration.contracts import ProcessMessageRequest, ProcessMessageResponse
@@ -17,11 +15,10 @@ logger = logging.getLogger(__name__)
 
 
 class YelenaGateway:
-    """Ponto de integração para HTTP e Bridge."""
-
     def __init__(self, runtime: YelenaRuntime | None = None) -> None:
         self.runtime = runtime or YelenaRuntime()
         self._discord_started = False
+        self._discord_error: str | None = None
 
     @property
     def state(self) -> str:
@@ -36,23 +33,30 @@ class YelenaGateway:
             self.runtime.bootstrap()
         if self.runtime.state != RuntimeState.READY:
             self.runtime.start()
-        logger.info("YelenaGateway started", extra={"state": self.state})
+        logger.info("YelenaGateway started state=%s", self.state)
 
     async def start_discord_if_configured(self) -> None:
-        """Sobe adapter Discord se DISCORD_TOKEN estiver definido."""
         bridge = self.bridge
         if bridge is None:
+            self._discord_error = "bridge_missing"
             return
-        if not bridge.discord_token_configured():
-            logger.info("DISCORD_TOKEN not set — Discord adapter skipped")
+        token = os.getenv("DISCORD_TOKEN", "").strip()
+        if not token:
+            self._discord_error = "DISCORD_TOKEN empty"
+            logger.error(
+                "Discord OFFLINE: variável DISCORD_TOKEN não está definida no Render"
+            )
             return
+        logger.info("Discord token present (len=%s) — starting adapter", len(token))
         try:
-            adapter = bridge.register_discord()
+            adapter = bridge.register_discord(token=token)
             await adapter.start()
             self._discord_started = True
-            logger.info("Discord adapter started via Bridge")
-        except Exception:
-            logger.exception("failed to start Discord adapter")
+            self._discord_error = None
+            logger.info("Discord adapter started — bot should go online")
+        except Exception as exc:
+            self._discord_error = str(exc)[:200]
+            logger.exception("Discord adapter FAILED: %s", exc)
 
     async def stop_discord(self) -> None:
         bridge = self.bridge
@@ -78,6 +82,8 @@ class YelenaGateway:
             else "not_ready"
         )
         data["discord_adapter"] = "online" if self._discord_started else "offline"
+        if self._discord_error:
+            data["discord_error"] = self._discord_error
         if self.bridge is not None:
             data["bridge"] = self.bridge.health()
         return data
