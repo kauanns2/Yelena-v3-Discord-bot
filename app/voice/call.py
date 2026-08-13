@@ -1,4 +1,4 @@
-"""Canal de voz Discord — entrar, falar, sair, responder na call."""
+"""Canal de voz Discord — join com escuta, fala, leave."""
 
 from __future__ import annotations
 
@@ -6,7 +6,10 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable
+
+from app.voice.listen import CallListener
+from app.voice.stt import stt_available
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +20,8 @@ JOIN_RE = re.compile(
 )
 LEAVE_RE = re.compile(r"\b(sai da call|sair da call|desconecta|leave|hang up)\b", re.I)
 
-# guild_id -> voice client ref helper via discord guild.voice_client
+# guild_id -> CallListener
+_LISTENERS: dict[int, CallListener] = {}
 
 
 def is_join_request(text: str) -> bool:
@@ -40,10 +44,17 @@ def _ffmpeg() -> str | None:
 async def leave_voice(client: Any, guild: Any) -> str:
     if guild is None:
         return "Não estou em um servidor."
+    gid = guild.id
+    _LISTENERS.pop(gid, None)
     vc = guild.voice_client
     if vc is None:
         return "Não estou em nenhuma call."
     try:
+        if hasattr(vc, "stop_listening"):
+            try:
+                vc.stop_listening()
+            except Exception:
+                pass
         await vc.disconnect(force=True)
         return "Saí da call."
     except Exception:
@@ -52,7 +63,6 @@ async def leave_voice(client: Any, guild: Any) -> str:
 
 
 async def play_in_guild(guild: Any, audio_path: str | Path) -> bool:
-    """Toca áudio no voice client atual do guild."""
     import discord
 
     if guild is None:
@@ -66,26 +76,39 @@ async def play_in_guild(guild: Any, audio_path: str | Path) -> bool:
     ffmpeg = _ffmpeg()
     if ffmpeg is None:
         return False
+
+    listener = _LISTENERS.get(guild.id)
+    if listener:
+        listener.pause()  # não se escuta respondendo
+
     try:
         source = discord.FFmpegPCMAudio(str(path), executable=ffmpeg, options="-vn")
+
+        def _after(err: Exception | None) -> None:
+            if listener:
+                listener.resume()
+            if err:
+                logger.error("play error: %s", err)
+
         if vc.is_playing():
             vc.stop()
-        vc.play(source)
+        vc.play(source, after=_after)
         return True
     except Exception:
+        if listener:
+            listener.resume()
         logger.exception("play_in_guild failed")
         return False
 
 
-async def join_and_speak(
+async def join_and_listen(
     client: Any,
     message: Any,
-    audio_path: str | Path | None,
     *,
-    speak_text_fallback: str = "",
+    on_user_text: Callable[[str, Any], Awaitable[None]] | None = None,
+    greeting_audio: str | Path | None = None,
 ) -> str:
-    import discord
-
+    """Entra na call e começa a escutar (se STT disponível)."""
     author = message.author
     if not getattr(author, "voice", None) or author.voice is None or author.voice.channel is None:
         return "Entra numa call antes — aí eu conecto com você."
@@ -101,20 +124,78 @@ async def join_and_speak(
         if not getattr(perms, "connect", True) or not getattr(perms, "speak", True):
             return "Não tenho permissão de conectar/falar nesse canal de voz."
 
+    # tenta VoiceRecvClient
     vc = guild.voice_client
+    recv_cls = None
     try:
-        if vc is None or not vc.is_connected():
-            vc = await channel.connect()
-        elif vc.channel.id != channel.id:
-            await vc.move_to(channel)
+        from discord.ext import voice_recv
+
+        recv_cls = voice_recv.VoiceRecvClient
+    except Exception:
+        logger.warning("discord-ext-voice-recv não disponível — call sem escuta")
+
+    try:
+        if vc is not None and vc.is_connected():
+            if vc.channel.id != channel.id:
+                await vc.move_to(channel)
+        else:
+            if recv_cls is not None:
+                vc = await channel.connect(cls=recv_cls)
+            else:
+                vc = await channel.connect()
     except Exception:
         logger.exception("voice connect failed")
         return "Não consegui entrar na call. Confere permissão Conectar/Falar."
 
-    if audio_path and Path(audio_path).is_file():
-        ok = await play_in_guild(guild, audio_path)
-        if ok:
-            return "Entrei na call. Pode falar comigo por texto que eu respondo em voz — ou manda áudio no chat."
-        return "Entrei na call, mas não consegui tocar o áudio."
+    listen_ok = False
+    if recv_cls is not None and on_user_text is not None and stt_available():
+        try:
+            from discord.ext import voice_recv
 
-    return "Entrei na call. Pode falar comigo por texto que eu respondo em voz."
+            import asyncio
+
+            listener = CallListener(
+                on_user_text,
+                bot_user_id=getattr(client.user, "id", None),
+            )
+            listener.set_loop(asyncio.get_running_loop())
+            _LISTENERS[guild.id] = listener
+
+            def _cb(user: Any, data: Any) -> None:
+                listener.on_packet(user, data)
+
+            vc.listen(voice_recv.BasicSink(_cb))
+            listen_ok = True
+        except Exception:
+            logger.exception("start listen failed")
+
+    if greeting_audio and Path(greeting_audio).is_file():
+        await play_in_guild(guild, greeting_audio)
+
+    if listen_ok:
+        return (
+            "Entrei na call e tô te ouvindo. "
+            "Fala no microfone — eu transformo em texto, corrijo e respondo em voz."
+        )
+    if not stt_available():
+        return (
+            "Entrei na call, mas sem OPENAI_API_KEY eu não consigo ouvir o microfone. "
+            "Configura a chave no Render pra eu te escutar de verdade."
+        )
+    return "Entrei na call. Escuta do microfone falhou — tenta de novo ou usa texto por enquanto."
+
+
+# compat
+async def join_and_speak(
+    client: Any,
+    message: Any,
+    audio_path: str | Path | None,
+    *,
+    speak_text_fallback: str = "",
+) -> str:
+    return await join_and_listen(
+        client,
+        message,
+        on_user_text=None,
+        greeting_audio=audio_path,
+    )

@@ -1,4 +1,4 @@
-"""Adapter Discord — texto no chat; voz só na call (sem arquivo)."""
+"""Adapter Discord — call com escuta + voz nativa no chat (sem anexo solto)."""
 
 from __future__ import annotations
 
@@ -20,11 +20,13 @@ from app.bridge.platforms.base import (
 from app.voice.call import (
     is_join_request,
     is_leave_request,
-    join_and_speak,
+    join_and_listen,
     leave_voice,
     play_in_guild,
 )
+from app.voice.native_message import send_native_voice_message
 from app.voice.stt import stt_available, transcribe_file
+from app.voice.wants import wants_audio
 
 logger = logging.getLogger(__name__)
 
@@ -90,12 +92,37 @@ class DiscordAdapter(PlatformAdapter):
             return True
         if self._bot_in_same_call(message):
             return True
-
         if self._mode == "mention":
             return False
         if INTEREST_RE.search(content) and random.random() < 0.12:
             return True
         return False
+
+    async def _handle_voice_utterance(self, text: str, member: Any, guild: Any) -> None:
+        """Texto da call → Runtime → fala na call."""
+        if self._handler is None or not text:
+            return
+        inbound = InboundMessage(
+            text=text,
+            user_id=str(member.id),
+            channel_id=str(guild.id),
+            platform=PlatformId.DISCORD.value,
+            metadata={"in_voice_with_bot": True, "source": "voice_call"},
+        )
+        try:
+            result = self._handler(inbound)
+            outbound = await result if hasattr(result, "__await__") else result
+            if not outbound or not outbound.text:
+                return
+            from app.voice.manager import VoiceManager
+
+            vm = VoiceManager()
+            audio = await vm.synthesize_async(outbound.text)
+            if audio:
+                await play_in_guild(guild, audio)
+                Path(audio).unlink(missing_ok=True)
+        except Exception:
+            logger.exception("voice utterance handle failed")
 
     async def start(self) -> None:
         if not self._token:
@@ -115,7 +142,11 @@ class DiscordAdapter(PlatformAdapter):
         class YelenaClient(discord.Client):
             async def on_ready(self) -> None:  # type: ignore[override]
                 adapter._started = True
-                logger.info("discord online user=%s", str(self.user))
+                logger.info(
+                    "discord online user=%s stt=%s",
+                    str(self.user),
+                    stt_available(),
+                )
 
             async def on_message(self, message: discord.Message) -> None:  # type: ignore[override]
                 if message.author.bot or adapter._handler is None:
@@ -123,7 +154,6 @@ class DiscordAdapter(PlatformAdapter):
 
                 content = (message.content or "").strip()
 
-                # STT de anexo (não reenvia arquivo; só usa texto)
                 if not content and message.attachments and stt_available():
                     for att in message.attachments:
                         name = (att.filename or "").lower()
@@ -137,7 +167,7 @@ class DiscordAdapter(PlatformAdapter):
                                     content = text
                                     break
                             except Exception:
-                                logger.exception("STT failed")
+                                logger.exception("STT attach failed")
                             break
 
                 if not content or not adapter._should_respond(message):
@@ -153,11 +183,20 @@ class DiscordAdapter(PlatformAdapter):
                     from app.voice.manager import VoiceManager
 
                     vm = VoiceManager()
-                    p = await vm.synthesize_async("Oi. Entrei na call.")
-                    status = await join_and_speak(self, message, str(p) if p else None)
+                    greet = await vm.synthesize_async("Oi. Entrei na call. Pode falar.")
+
+                    async def on_utt(text: str, member: Any) -> None:
+                        await adapter._handle_voice_utterance(text, member, message.guild)
+
+                    status = await join_and_listen(
+                        self,
+                        message,
+                        on_user_text=on_utt,
+                        greeting_audio=str(greet) if greet else None,
+                    )
                     await message.channel.send(status)
-                    if p:
-                        Path(p).unlink(missing_ok=True)
+                    if greet:
+                        Path(greet).unlink(missing_ok=True)
                     return
 
                 inbound = InboundMessage(
@@ -178,7 +217,7 @@ class DiscordAdapter(PlatformAdapter):
                     if not outbound:
                         return
 
-                    # Voz: só no canal de voz — nunca arquivo no chat
+                    # na call → só fala
                     if adapter._bot_in_same_call(message) and outbound.text:
                         from app.voice.manager import VoiceManager
 
@@ -188,6 +227,20 @@ class DiscordAdapter(PlatformAdapter):
                             played = await play_in_guild(message.guild, audio_path)
                             Path(audio_path).unlink(missing_ok=True)
                             if played:
+                                return
+
+                    # fora da call + pediu áudio → voice message nativa (não anexo solto)
+                    if wants_audio(content) and outbound.text:
+                        from app.voice.manager import VoiceManager
+
+                        vm = VoiceManager()
+                        audio_path = await vm.synthesize_async(outbound.text)
+                        if audio_path:
+                            ok = await send_native_voice_message(
+                                message.channel, audio_path, fallback_text=""
+                            )
+                            Path(audio_path).unlink(missing_ok=True)
+                            if ok:
                                 return
 
                     if outbound.text:
@@ -207,7 +260,6 @@ class DiscordAdapter(PlatformAdapter):
         self._task = asyncio.create_task(self._client.start(self._token))
 
     async def _send_outbound(self, channel: Any, outbound: OutboundMessage) -> None:
-        # política: sem anexos de áudio
         if outbound.text:
             await channel.send(outbound.text[:1900])
 
@@ -234,7 +286,6 @@ class DiscordAdapter(PlatformAdapter):
         return {
             "platform": self.platform_id,
             "status": "online" if self._started else "offline",
-            "token_configured": bool(self._token),
+            "stt": stt_available(),
             "mode": self._mode,
-            "chat_audio_files": False,
         }
