@@ -13,19 +13,30 @@ from app.voice.stt import stt_available
 
 logger = logging.getLogger(__name__)
 
+# aceita cal / call / ligação / typos comuns
 JOIN_RE = re.compile(
-    r"\b(liga|ligar|entre na call|entra na call|entra no voice|join|"
-    r"vem pra call|vem na call|conecta na call|entra na sala)\b",
+    r"(?:"
+    r"\b(?:liga|ligar|join)\b"
+    r"|(?:entra|entre|vem|conecta|conectar)\s+(?:na|no|pra|para)?\s*"
+    r"(?:call|cal|cail|liga[cç][aã]o|voice|voz|canal de voz|sala)\b"
+    r"|(?:call|cal|liga[cç][aã]o)\b"
+    r")",
     re.I,
 )
-LEAVE_RE = re.compile(r"\b(sai da call|sair da call|desconecta|leave|hang up)\b", re.I)
+LEAVE_RE = re.compile(
+    r"(?:sai|sair|desconecta|leave|hang\s*up).*(?:call|cal|liga[cç][aã]o|voz)?"
+    r"|\b(?:leave|disconnect)\b",
+    re.I,
+)
 
-# guild_id -> CallListener
 _LISTENERS: dict[int, CallListener] = {}
 
 
 def is_join_request(text: str) -> bool:
-    return bool(JOIN_RE.search(text or ""))
+    t = (text or "").strip()
+    if not t:
+        return False
+    return bool(JOIN_RE.search(t))
 
 
 def is_leave_request(text: str) -> bool:
@@ -79,7 +90,7 @@ async def play_in_guild(guild: Any, audio_path: str | Path) -> bool:
 
     listener = _LISTENERS.get(guild.id)
     if listener:
-        listener.pause()  # não se escuta respondendo
+        listener.pause()
 
     try:
         source = discord.FFmpegPCMAudio(str(path), executable=ffmpeg, options="-vn")
@@ -108,7 +119,6 @@ async def join_and_listen(
     on_user_text: Callable[[str, Any], Awaitable[None]] | None = None,
     greeting_audio: str | Path | None = None,
 ) -> str:
-    """Entra na call e começa a escutar (se STT disponível)."""
     author = message.author
     if not getattr(author, "voice", None) or author.voice is None or author.voice.channel is None:
         return "Entra numa call antes — aí eu conecto com você."
@@ -124,7 +134,6 @@ async def join_and_listen(
         if not getattr(perms, "connect", True) or not getattr(perms, "speak", True):
             return "Não tenho permissão de conectar/falar nesse canal de voz."
 
-    # tenta VoiceRecvClient
     vc = guild.voice_client
     recv_cls = None
     try:
@@ -151,7 +160,6 @@ async def join_and_listen(
     if recv_cls is not None and on_user_text is not None and stt_available():
         try:
             from discord.ext import voice_recv
-
             import asyncio
 
             listener = CallListener(
@@ -185,7 +193,6 @@ async def join_and_listen(
     return "Entrei na call. Escuta do microfone falhou — tenta de novo ou usa texto por enquanto."
 
 
-# compat
 async def join_and_speak(
     client: Any,
     message: Any,

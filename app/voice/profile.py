@@ -1,11 +1,4 @@
-"""Identidade vocal da Yelena.
-
-Direção:
-- Clareza e juventude (referência estética de voz jovem limpa),
-  mas **sem** tom de anime / personagem sintetizada.
-- Puxar para realismo de garota ~20–23 em call de Discord.
-- Não é clone de nenhuma personagem comercial; é um perfil próprio.
-"""
+"""Identidade vocal da Yelena — mais natural, menos robótica."""
 
 from __future__ import annotations
 
@@ -14,24 +7,20 @@ import random
 import re
 
 DEFAULT_VOICE = (os.getenv("YELENA_TTS_VOICE") or "pt-BR-FranciscaNeural").strip()
-# rate quase natural; pitch um pouco acima = mais jovem, sem gritar anime
-DEFAULT_RATE = os.getenv("YELENA_TTS_RATE", "+2%")
-DEFAULT_PITCH = os.getenv("YELENA_TTS_PITCH", "+5Hz")
+# mais perto de fala humana (menos "apresentadora")
+DEFAULT_RATE = os.getenv("YELENA_TTS_RATE", "-5%")
+DEFAULT_PITCH = os.getenv("YELENA_TTS_PITCH", "+2Hz")
 DEFAULT_VOLUME = os.getenv("YELENA_TTS_VOLUME", "+0%")
 
 VOICE_BRIEF = (
     "Voz feminina jovem (~22), clara e natural, como em call de Discord. "
-    "Sem narração, sem anime, sem assistente. Português brasileiro; "
-    "sotaque russo só quando o clone/futuro provider permitir."
+    "Sem narração, sem anime, sem assistente."
 )
 
-# suaviza padrões que soam "personagem"
 _ANIME_TRIM = [
     (re.compile(r"!{2,}"), "!"),
     (re.compile(r"\?{2,}"), "?"),
     (re.compile(r"~+"), ""),
-    (re.compile(r"\bnya+\b", re.I), ""),
-    (re.compile(r"\bdesu\b", re.I), ""),
 ]
 
 
@@ -47,13 +36,14 @@ def prepare_spoken_text(text: str, *, emotion: str | None = None) -> str:
     for pat, rep in _ANIME_TRIM:
         t = pat.sub(rep, t)
 
-    # hesitação humana rara — não “cute”
-    if len(t) > 16 and random.random() < 0.12:
+    # frases longas demais soam robóticas no TTS — quebra leve
+    if len(t) > 180:
+        t = t[:177].rsplit(" ", 1)[0] + "..."
+
+    if len(t) > 14 and random.random() < 0.1:
         t = random.choice(["Hm... ", "É... ", ""]) + t
 
     if emotion in {"serious", "concern", "sad"}:
         t = t.replace("!", ".")
 
-    if len(t) > 320:
-        t = t[:317].rstrip() + "..."
     return t.strip()

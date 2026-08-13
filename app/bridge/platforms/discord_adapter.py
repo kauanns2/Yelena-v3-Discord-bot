@@ -1,4 +1,4 @@
-"""Adapter Discord — call com escuta + voz nativa no chat (sem anexo solto)."""
+"""Adapter Discord — join robusto; voz nativa ou call; sem arquivo."""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 NAME_RE = re.compile(r"\byelena\b", re.I)
 INTEREST_RE = re.compile(
     r"\b(yelena|ia|intelig[eê]ncia|mem[oó]ria|personalidade|emo[cç][aã]o|"
-    r"sentir|pensar|arquitetura|seguran[cç]a|discord|projeto|áudio|audio|voz|call)\b",
+    r"sentir|pensar|arquitetura|seguran[cç]a|discord|projeto|áudio|audio|voz|call|cal)\b",
     re.I,
 )
 
@@ -99,7 +99,6 @@ class DiscordAdapter(PlatformAdapter):
         return False
 
     async def _handle_voice_utterance(self, text: str, member: Any, guild: Any) -> None:
-        """Texto da call → Runtime → fala na call."""
         if self._handler is None or not text:
             return
         inbound = InboundMessage(
@@ -142,11 +141,7 @@ class DiscordAdapter(PlatformAdapter):
         class YelenaClient(discord.Client):
             async def on_ready(self) -> None:  # type: ignore[override]
                 adapter._started = True
-                logger.info(
-                    "discord online user=%s stt=%s",
-                    str(self.user),
-                    stt_available(),
-                )
+                logger.info("discord online user=%s stt=%s", str(self.user), stt_available())
 
             async def on_message(self, message: discord.Message) -> None:  # type: ignore[override]
                 if message.author.bot or adapter._handler is None:
@@ -173,6 +168,7 @@ class DiscordAdapter(PlatformAdapter):
                 if not content or not adapter._should_respond(message):
                     return
 
+                # JOIN / LEAVE primeiro — antes do pipeline genérico
                 if is_leave_request(content) and (
                     NAME_RE.search(content) or adapter._bot_in_same_call(message)
                 ):
@@ -217,7 +213,6 @@ class DiscordAdapter(PlatformAdapter):
                     if not outbound:
                         return
 
-                    # na call → só fala
                     if adapter._bot_in_same_call(message) and outbound.text:
                         from app.voice.manager import VoiceManager
 
@@ -229,7 +224,7 @@ class DiscordAdapter(PlatformAdapter):
                             if played:
                                 return
 
-                    # fora da call + pediu áudio → voice message nativa (não anexo solto)
+                    # pediu áudio fora da call → só voz nativa; se falhar, texto (NUNCA arquivo)
                     if wants_audio(content) and outbound.text:
                         from app.voice.manager import VoiceManager
 
@@ -237,11 +232,17 @@ class DiscordAdapter(PlatformAdapter):
                         audio_path = await vm.synthesize_async(outbound.text)
                         if audio_path:
                             ok = await send_native_voice_message(
-                                message.channel, audio_path, fallback_text=""
+                                message.channel,
+                                audio_path,
+                                fallback_text=(
+                                    "Não consigo mandar voz nativa aqui. "
+                                    "Entra na call e fala: Yelena entra na call"
+                                ),
                             )
                             Path(audio_path).unlink(missing_ok=True)
                             if ok:
                                 return
+                            return  # fallback_text já enviado dentro de send_native
 
                     if outbound.text:
                         await message.channel.send(outbound.text[:1900])
