@@ -127,7 +127,6 @@ class YelenaRuntime:
             if mod and hasattr(mod, "start"):
                 mod.start()
 
-        # Teia Neural: registrar topologia canônica dos módulos
         try:
             from app.neural.wiring import wire_canonical_topology
 
@@ -135,13 +134,19 @@ class YelenaRuntime:
         except Exception:
             logger.exception("neural topology wiring failed")
 
-        # identidade canônica após knowledge start
         try:
             from app.identity import seed_identity_into_knowledge
 
             seed_identity_into_knowledge(self.knowledge)
         except Exception:
             logger.exception("identity seed on start failed")
+
+        try:
+            from app.world import seed_world_into_knowledge
+
+            seed_world_into_knowledge(self.knowledge)
+        except Exception:
+            logger.exception("world seed on start failed")
 
         self.state = RuntimeState.READY
         if self.observability:
