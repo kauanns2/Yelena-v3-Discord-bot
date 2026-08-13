@@ -4,3 +4,4 @@
 fastapi>=0.110
 uvicorn[standard]>=0.27
 discord.py>=2.3
+edge-tts>=6.1.9

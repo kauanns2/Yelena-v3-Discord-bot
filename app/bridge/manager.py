@@ -13,6 +13,7 @@ from app.bridge.platforms.base import InboundMessage, OutboundMessage
 from app.bridge.platforms.discord_adapter import DiscordAdapter
 from app.bridge.platforms.registry import PlatformRegistry
 from app.bridge.resilience import ResilienceBoundary
+from app.voice import VoiceManager, wants_audio
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,7 @@ class BridgeManager:
         self.continuity = ContinuityStore()
         self.evolution = EvolutionLedger(self.continuity)
         self.resilience = ResilienceBoundary()
+        self.voice = VoiceManager()
         self._process_fn = process_fn
         self._started = False
         self._session_map: dict[str, str] = {}
@@ -38,16 +40,19 @@ class BridgeManager:
 
     def start(self) -> None:
         self._started = True
+        self.voice.start()
         stored = self.continuity.get(ContinuityNamespace.SESSION, "map", default={})
         if isinstance(stored, dict):
             self._session_map.update({str(k): str(v) for k, v in stored.items()})
         logger.info(
-            "bridge system started platforms=%s",
+            "bridge system started platforms=%s voice=%s",
             self.platforms.list_ids(),
+            self.voice.is_enabled,
         )
 
     def stop(self) -> None:
         self._started = False
+        self.voice.stop()
         try:
             self.continuity.put(ContinuityNamespace.SESSION, "map", dict(self._session_map))
         except Exception:
@@ -69,10 +74,11 @@ class BridgeManager:
                 )
 
             session_key = f"{inbound.platform}:{inbound.channel_id}:{inbound.user_id}"
-            # só reutiliza session_id se já mapeada pelo Bridge (UUID real do Runtime)
             session_id = self._session_map.get(session_key)
             if inbound.session_id and inbound.session_id in self._session_map.values():
                 session_id = inbound.session_id
+
+            prefer = wants_audio(inbound.text)
 
             result = self._process_fn(
                 inbound.text,
@@ -99,6 +105,15 @@ class BridgeManager:
                 except Exception:
                     logger.exception("continuity session put failed")
 
+            audio_path = None
+            if prefer and self.voice.is_enabled and text:
+                # se o texto for só aviso de "áudio não ligado", não sintetiza
+                low = text.lower()
+                if "módulo de voz ainda" not in low and "áudio ainda não" not in low:
+                    path = self.voice.synthesize(text)
+                    if path is not None:
+                        audio_path = str(path)
+
             try:
                 complexity = getattr(result, "complexity", None)
                 complexity_val = (
@@ -112,6 +127,7 @@ class BridgeManager:
                         "platform": inbound.platform,
                         "user_id": inbound.user_id,
                         "complexity": complexity_val,
+                        "audio": bool(audio_path),
                     },
                     confidence=float(getattr(result, "confidence", 0.5) or 0.5),
                 )
@@ -123,6 +139,8 @@ class BridgeManager:
                 channel_id=inbound.channel_id,
                 user_id=inbound.user_id,
                 reply_to=inbound.id,
+                audio_path=audio_path,
+                prefer_audio=prefer,
             )
 
         try:
@@ -167,6 +185,7 @@ class BridgeManager:
             "continuity": self.continuity.health(),
             "evolution": self.evolution.health(),
             "resilience": self.resilience.health(),
+            "voice": self.voice.health(),
         }
 
     @staticmethod

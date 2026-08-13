@@ -1,15 +1,5 @@
-"""
-Voice (futuro) — síntese de áudio.
+"""Voice — TTS e preferência de áudio."""
 
-NÃO redefine personalidade, emoção ou raciocínio.
-Consome texto já produzido pela Language.
+from app.voice.manager import VoiceManager, wants_audio
 
-Estrutura prevista:
-  app/voice/
-    README.md
-    manager.py
-    providers/     # TTS adapters
-    models/
-"""
-
-# Stub: módulo reservado. Implementação quando houver TTS real.
+__all__ = ["VoiceManager", "wants_audio"]

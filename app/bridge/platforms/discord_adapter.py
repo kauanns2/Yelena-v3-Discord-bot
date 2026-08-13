@@ -1,10 +1,4 @@
-"""Adapter Discord — fino. Não contém lógica cognitiva.
-
-Modos de resposta (YELENA_DISCORD_MODE):
-  mention  — só menção, reply ao bot, DM ou nome "Yelena"
-  smart    — mention + interjeição rara em tópicos de interesse (padrão)
-  always   — responde tudo no canal (debug)
-"""
+"""Adapter Discord — texto + áudio (anexo)."""
 
 from __future__ import annotations
 
@@ -12,6 +6,7 @@ import logging
 import os
 import random
 import re
+from pathlib import Path
 from typing import Any
 
 from app.bridge.constants import PlatformId
@@ -28,14 +23,12 @@ logger = logging.getLogger(__name__)
 NAME_RE = re.compile(r"\byelena\b", re.I)
 INTEREST_RE = re.compile(
     r"\b(yelena|ia|intelig[eê]ncia|mem[oó]ria|personalidade|emo[cç][aã]o|"
-    r"sentir|pensar|arquitetura|seguran[cç]a|discord|projeto)\b",
+    r"sentir|pensar|arquitetura|seguran[cç]a|discord|projeto|áudio|audio|voz)\b",
     re.I,
 )
 
 
 class DiscordAdapter(PlatformAdapter):
-    """Conecta ao Discord e encaminha mensagens ao handler do Bridge."""
-
     def __init__(self, token: str | None = None) -> None:
         self._token = token or os.getenv("DISCORD_TOKEN", "").strip()
         self._handler: MessageHandler | None = None
@@ -52,46 +45,37 @@ class DiscordAdapter(PlatformAdapter):
         self._handler = handler
 
     def _should_respond(self, message: Any) -> bool:
-        """Decide se a Yelena fala nesta mensagem."""
         if self._mode == "always":
             return True
 
-        # DM sempre
-        if getattr(message.channel, "type", None) is not None:
-            try:
-                import discord
+        try:
+            import discord
 
-                if message.channel.type == discord.ChannelType.private:
-                    return True
-            except Exception:
-                pass
-        if getattr(message.guild, "id", None) is None and not hasattr(message.channel, "guild"):
-            # heurística DM
             if message.guild is None:
+                return True
+            if getattr(message.channel, "type", None) == discord.ChannelType.private:
+                return True
+        except Exception:
+            if getattr(message, "guild", None) is None:
                 return True
 
         content = message.content or ""
-
-        # menção direta ao bot
         me = getattr(self._client, "user", None)
         if me is not None and me in getattr(message, "mentions", []):
             return True
 
-        # reply à mensagem do bot
         ref = getattr(message, "reference", None)
         if ref is not None and getattr(ref, "resolved", None) is not None:
             author = getattr(ref.resolved, "author", None)
             if author is not None and me is not None and author.id == me.id:
                 return True
 
-        # chamou pelo nome
         if NAME_RE.search(content):
             return True
 
         if self._mode == "mention":
             return False
 
-        # smart: interjeição rara se o assunto interessa
         if INTEREST_RE.search(content) and random.random() < 0.12:
             return True
 
@@ -122,7 +106,11 @@ class DiscordAdapter(PlatformAdapter):
         class YelenaClient(discord.Client):
             async def on_ready(self) -> None:  # type: ignore[override]
                 adapter._started = True
-                logger.info("discord adapter online user=%s mode=%s", str(self.user), adapter._mode)
+                logger.info(
+                    "discord adapter online user=%s mode=%s",
+                    str(self.user),
+                    adapter._mode,
+                )
 
             async def on_message(self, message: discord.Message) -> None:  # type: ignore[override]
                 if message.author.bot:
@@ -153,8 +141,9 @@ class DiscordAdapter(PlatformAdapter):
                         outbound = await result  # type: ignore[misc]
                     else:
                         outbound = result  # type: ignore[assignment]
-                    if outbound and outbound.text:
-                        await message.channel.send(outbound.text[:1900])
+                    if not outbound:
+                        return
+                    await adapter._send_outbound(message.channel, outbound)
                 except Exception:
                     logger.exception("discord handler failed")
                     try:
@@ -169,6 +158,31 @@ class DiscordAdapter(PlatformAdapter):
 
         self._task = asyncio.create_task(self._client.start(self._token))
         logger.info("discord adapter starting mode=%s", self._mode)
+
+    async def _send_outbound(self, channel: Any, outbound: OutboundMessage) -> None:
+        import discord
+
+        text = (outbound.text or "")[:1900]
+        audio = outbound.audio_path
+        if audio and Path(audio).is_file():
+            try:
+                file = discord.File(audio, filename="yelena.mp3")
+                # texto curto + áudio
+                content = text if text else None
+                await channel.send(content=content, file=file)
+            except Exception:
+                logger.exception("failed to send audio; falling back to text")
+                if text:
+                    await channel.send(text)
+            finally:
+                try:
+                    Path(audio).unlink(missing_ok=True)
+                except Exception:
+                    pass
+            return
+
+        if text:
+            await channel.send(text)
 
     async def stop(self) -> None:
         self._started = False
@@ -189,8 +203,8 @@ class DiscordAdapter(PlatformAdapter):
             try:
                 channel = await self._client.fetch_channel(int(message.channel_id))
             except Exception as exc:
-                raise PlatformError(f"Channel not found: {message.channel_id}") from exc
-        await channel.send(message.text[:1900])
+                raise PlatformError(f"Channel not found: {message.channel_id}") from exp
+        await self._send_outbound(channel, message)
 
     def health(self) -> dict[str, Any]:
         return {

@@ -20,6 +20,10 @@ WELLBEING_RE = re.compile(
     r"\b(tudo bem|td bem|tudo bom|td bom|como (você|vc|ce|cê) (está|esta|tá|ta)|como vai)\b",
     re.I,
 )
+AUDIO_RE = re.compile(
+    r"\b(áudio|audio|voz|voice|manda (um )?áudio|envie (um )?áudio|responde em áudio|fala em áudio)\b",
+    re.I,
+)
 
 
 class LocalTemplateProvider(LanguageProvider):
@@ -75,11 +79,9 @@ class LocalTemplateProvider(LanguageProvider):
         ):
             return str(request.metadata["clarification_question"])
 
-        # wellbeing antes de tudo genérico
         if WELLBEING_RE.search(low):
             return random.choice(["Tô bem.", "De boa. E você?", "Tudo certo por aqui."])
 
-        # saudação (inclui "Oiê Yelena")
         if intent == "greeting" or GREETING_RE.search(low):
             return random.choice(["Oi.", "Oi. Tô aqui.", "Fala.", "Oi — manda."])
 
@@ -92,11 +94,13 @@ class LocalTemplateProvider(LanguageProvider):
         if intent == "denial":
             return random.choice(["Ok, deixo pra lá.", "Tudo bem.", "Certo."])
 
-        if any(k in low for k in ("áudio", "audio", "voz", "voice", "mandar áudio", "manda um áudio")):
+        # pedido de áudio: gera fala normal (o Bridge sintetiza TTS)
+        if AUDIO_RE.search(low):
             return random.choice(
                 [
-                    "Áudio ainda não está ligado no sistema. Por enquanto respondo em texto.",
-                    "Não consigo enviar áudio agora — o módulo de voz ainda é reserva. Texto eu mando.",
+                    "Beleza. Te mando em áudio.",
+                    "Ok. Áudio indo.",
+                    "Certo. Vou falar.",
                 ]
             )
 
@@ -142,17 +146,10 @@ class LocalTemplateProvider(LanguageProvider):
         if "?" in hint or intent == "question":
             return self._answer_open(low)
 
-        # statement genérico — sem "Anotado" vazio
         if len(low) < 12:
             return random.choice(["Oi.", "Pode falar.", "Tô ouvindo."])
 
-        return random.choice(
-            [
-                "Entendi.",
-                "Ok. Seguimos.",
-                "Certo.",
-            ]
-        )
+        return random.choice(["Entendi.", "Ok. Seguimos.", "Certo."])
 
     def _user_hint(self, request: GenerationRequest) -> str:
         ut = str(request.metadata.get("user_text") or "").strip()

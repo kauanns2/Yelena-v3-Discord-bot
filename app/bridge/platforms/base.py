@@ -29,6 +29,9 @@ class OutboundMessage:
     user_id: str | None = None
     reply_to: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    # path local de áudio (mp3) para a plataforma enviar
+    audio_path: str | None = None
+    prefer_audio: bool = False
 
 
 MessageHandler = Callable[[InboundMessage], Awaitable[OutboundMessage] | OutboundMessage]
