@@ -13,17 +13,18 @@ from app.voice.stt import stt_available, stt_backend_name
 
 logger = logging.getLogger(__name__)
 
+# NÃO usar \bcal\b sozinho — “sai da cal” batia como join
 JOIN_RE = re.compile(
     r"(?:"
     r"\b(?:liga|ligar|join)\b"
-    r"|(?:entra|entre|vem|conecta|conectar)\s+(?:na|no|pra|para)?\s*"
-    r"(?:call|cal|cail|liga[cç][aã]o|voice|voz|canal de voz|sala)\b"
-    r"|(?:call|cal|liga[cç][aã]o)\b"
+    r"|(?:entra|entre|vem|conecta|conectar|junta)\s+(?:na|no|pra|para|em)?\s*"
+    r"(?:call|cal|cail|liga[cç][aã]o|voice|voz|canal de voz|sala)"
     r")",
     re.I,
 )
 LEAVE_RE = re.compile(
-    r"(?:sai|sair|desconecta|leave|hang\s*up).*(?:call|cal|liga[cç][aã]o|voz)?"
+    r"(?:\b(?:sai|sair|desconecta|desconectar|leave|hang\s*up)\b)"
+    r".*(?:call|cal|liga[cç][aã]o|voz|canal)?"
     r"|\b(?:leave|disconnect)\b",
     re.I,
 )
@@ -34,6 +35,8 @@ _LISTENERS: dict[int, CallListener] = {}
 def is_join_request(text: str) -> bool:
     t = (text or "").strip()
     if not t:
+        return False
+    if is_leave_request(t):
         return False
     return bool(JOIN_RE.search(t))
 
@@ -58,7 +61,7 @@ async def leave_voice(client: Any, guild: Any) -> str:
     _LISTENERS.pop(gid, None)
     vc = guild.voice_client
     if vc is None:
-        return "Não estou em nenhuma call."
+        return "Já saí."
     try:
         if hasattr(vc, "stop_listening"):
             try:
@@ -66,10 +69,10 @@ async def leave_voice(client: Any, guild: Any) -> str:
             except Exception:
                 pass
         await vc.disconnect(force=True)
-        return "Saí da call."
+        return "Saí."
     except Exception:
         logger.exception("leave voice failed")
-        return "Não consegui sair da call."
+        return "Não consegui sair."
 
 
 async def play_in_guild(guild: Any, audio_path: str | Path) -> bool:
@@ -120,18 +123,18 @@ async def join_and_listen(
 ) -> str:
     author = message.author
     if not getattr(author, "voice", None) or author.voice is None or author.voice.channel is None:
-        return "Entra numa call antes — aí eu conecto com você."
+        return "Entra na call primeiro."
 
     channel = author.voice.channel
     guild = message.guild
     if guild is None:
-        return "Call só funciona em servidor, não em DM."
+        return "Call só em servidor."
 
     me = guild.me or guild.get_member(client.user.id)
     if me is not None:
         perms = channel.permissions_for(me)
         if not getattr(perms, "connect", True) or not getattr(perms, "speak", True):
-            return "Não tenho permissão de conectar/falar nesse canal de voz."
+            return "Sem permissão de voz nesse canal."
 
     vc = guild.voice_client
     recv_cls = None
@@ -140,7 +143,7 @@ async def join_and_listen(
 
         recv_cls = voice_recv.VoiceRecvClient
     except Exception:
-        logger.warning("discord-ext-voice-recv não disponível — call sem escuta")
+        logger.warning("discord-ext-voice-recv não disponível")
 
     try:
         if vc is not None and vc.is_connected():
@@ -153,7 +156,7 @@ async def join_and_listen(
                 vc = await channel.connect()
     except Exception:
         logger.exception("voice connect failed")
-        return "Não consegui entrar na call. Confere permissão Conectar/Falar."
+        return "Não consegui entrar."
 
     listen_ok = False
     if recv_cls is not None and on_user_text is not None and stt_available():
@@ -173,23 +176,17 @@ async def join_and_listen(
 
             vc.listen(voice_recv.BasicSink(_cb))
             listen_ok = True
+            logger.info("call listen started backend=%s guild=%s", stt_backend_name(), guild.id)
         except Exception:
             logger.exception("start listen failed")
 
     if greeting_audio and Path(greeting_audio).is_file():
         await play_in_guild(guild, greeting_audio)
 
-    backend = stt_backend_name()
+    # resposta curta no chat — sem tutorial
     if listen_ok:
-        extra = ""
-        if backend == "google_free":
-            extra = " (escuta gratuita — pode falhar se o Google limitar)"
-        return (
-            "Entrei na call e tô te ouvindo"
-            + extra
-            + ". Fala no microfone — eu transformo em texto, corrijo e respondo em voz."
-        )
-    return "Entrei na call. Escuta do microfone falhou — tenta de novo ou usa texto por enquanto."
+        return "Ok."
+    return "Entrei, mas a escuta falhou."
 
 
 async def join_and_speak(

@@ -1,9 +1,9 @@
-"""Speech-to-text multi-provider (com e sem OpenAI).
+"""Speech-to-text multi-provider.
 
 Prioridade:
 1. OPENAI_API_KEY → Whisper
-2. GROQ_API_KEY → Whisper (tier grátis da Groq, se tiver)
-3. Google Web Speech via SpeechRecognition → **sem chave** (grátis, com limite)
+2. GROQ_API_KEY → Whisper na Groq (grátis com conta Groq — não é xAI Grok)
+3. Google Web Speech → sem chave
 """
 
 from __future__ import annotations
@@ -18,15 +18,22 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+def _groq_key() -> str:
+    # GROQ = groq.com (Whisper). GROK costuma ser confusão com xAI.
+    return (
+        os.getenv("GROQ_API_KEY", "").strip()
+        or os.getenv("GROK_API_KEY", "").strip()  # alias se o user errou o nome
+    )
+
+
 def stt_available() -> bool:
-    """Sempre True: Google free cobre o caso sem chave."""
     return True
 
 
 def stt_backend_name() -> str:
     if os.getenv("OPENAI_API_KEY", "").strip():
         return "openai"
-    if os.getenv("GROQ_API_KEY", "").strip():
+    if _groq_key():
         return "groq"
     return "google_free"
 
@@ -41,7 +48,7 @@ async def transcribe_file(path: str | Path, *, language: str = "pt") -> str | No
         if text:
             return text
 
-    if os.getenv("GROQ_API_KEY", "").strip():
+    if _groq_key():
         text = await _groq_whisper(path, language=language)
         if text:
             return text
@@ -97,7 +104,7 @@ async def _groq_whisper(path: Path, *, language: str) -> str | None:
         import json
         import urllib.request
 
-        key = os.getenv("GROQ_API_KEY", "").strip()
+        key = _groq_key()
         boundary = "----YelenaGroq"
         data = path.read_bytes()
         lang = "pt" if language.startswith("pt") else language
@@ -149,7 +156,6 @@ def _ffmpeg() -> str | None:
 
 
 def _to_16k_mono_wav(src: Path) -> Path | None:
-    """Google Web Speech prefere 16 kHz mono WAV."""
     ffmpeg = _ffmpeg()
     if not ffmpeg:
         return src if src.suffix.lower() == ".wav" else None
@@ -185,8 +191,6 @@ def _to_16k_mono_wav(src: Path) -> Path | None:
 
 
 async def _google_free(path: Path, *, language: str) -> str | None:
-    """STT grátis via Google Web Speech (SpeechRecognition). Sem API key."""
-
     def _do() -> str | None:
         try:
             import speech_recognition as sr
@@ -196,7 +200,6 @@ async def _google_free(path: Path, *, language: str) -> str | None:
 
         wav = _to_16k_mono_wav(path)
         if wav is None:
-            logger.warning("could not prepare wav for Google STT")
             return None
         cleanup = wav != path
         try:
@@ -206,14 +209,8 @@ async def _google_free(path: Path, *, language: str) -> str | None:
             lang = "pt-BR" if language.startswith("pt") else language
             text = recognizer.recognize_google(audio, language=lang)
             return (text or "").strip() or None
-        except sr.UnknownValueError:
-            logger.info("Google STT: no speech recognized")
-            return None
-        except sr.RequestError as exc:
-            logger.warning("Google STT request error: %s", exc)
-            return None
-        except Exception:
-            logger.exception("Google STT failed")
+        except Exception as exc:
+            logger.warning("Google STT failed: %s", exc)
             return None
         finally:
             if cleanup:

@@ -1,4 +1,4 @@
-"""Adapter Discord — join robusto; voz nativa ou call; sem arquivo."""
+"""Adapter Discord — join/leave corretos; voz na call; sem arquivo."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ from app.voice.call import (
     play_in_guild,
 )
 from app.voice.native_message import send_native_voice_message
-from app.voice.stt import stt_available, transcribe_file
+from app.voice.stt import stt_available, stt_backend_name, transcribe_file
 from app.voice.wants import wants_audio
 
 logger = logging.getLogger(__name__)
@@ -54,11 +54,17 @@ class DiscordAdapter(PlatformAdapter):
     def set_handler(self, handler: MessageHandler) -> None:
         self._handler = handler
 
+    def _bot_in_voice(self, guild: Any) -> bool:
+        try:
+            return bool(guild and guild.voice_client and guild.voice_client.is_connected())
+        except Exception:
+            return False
+
     def _bot_in_same_call(self, message: Any) -> bool:
         try:
             guild = message.guild
             author = message.author
-            if not guild or not guild.voice_client or not guild.voice_client.is_connected():
+            if not self._bot_in_voice(guild):
                 return False
             if not getattr(author, "voice", None) or not author.voice or not author.voice.channel:
                 return False
@@ -101,6 +107,7 @@ class DiscordAdapter(PlatformAdapter):
     async def _handle_voice_utterance(self, text: str, member: Any, guild: Any) -> None:
         if self._handler is None or not text:
             return
+        logger.info("voice utt member=%s text=%r", getattr(member, "id", None), text[:100])
         inbound = InboundMessage(
             text=text,
             user_id=str(member.id),
@@ -141,7 +148,11 @@ class DiscordAdapter(PlatformAdapter):
         class YelenaClient(discord.Client):
             async def on_ready(self) -> None:  # type: ignore[override]
                 adapter._started = True
-                logger.info("discord online user=%s stt=%s", str(self.user), stt_available())
+                logger.info(
+                    "discord online user=%s stt=%s",
+                    str(self.user),
+                    stt_backend_name(),
+                )
 
             async def on_message(self, message: discord.Message) -> None:  # type: ignore[override]
                 if message.author.bot or adapter._handler is None:
@@ -168,9 +179,11 @@ class DiscordAdapter(PlatformAdapter):
                 if not content or not adapter._should_respond(message):
                     return
 
-                # JOIN / LEAVE primeiro — antes do pipeline genérico
+                # LEAVE: com nome OU bot já em voz no servidor
                 if is_leave_request(content) and (
-                    NAME_RE.search(content) or adapter._bot_in_same_call(message)
+                    NAME_RE.search(content)
+                    or adapter._bot_in_voice(message.guild)
+                    or adapter._bot_in_same_call(message)
                 ):
                     await message.channel.send(await leave_voice(self, message.guild))
                     return
@@ -179,7 +192,8 @@ class DiscordAdapter(PlatformAdapter):
                     from app.voice.manager import VoiceManager
 
                     vm = VoiceManager()
-                    greet = await vm.synthesize_async("Oi. Entrei na call. Pode falar.")
+                    # cumprimento só em voz, curto
+                    greet = await vm.synthesize_async("Oi.")
 
                     async def on_utt(text: str, member: Any) -> None:
                         await adapter._handle_voice_utterance(text, member, message.guild)
@@ -224,34 +238,26 @@ class DiscordAdapter(PlatformAdapter):
                             if played:
                                 return
 
-                    # pediu áudio fora da call → só voz nativa; se falhar, texto (NUNCA arquivo)
                     if wants_audio(content) and outbound.text:
                         from app.voice.manager import VoiceManager
 
                         vm = VoiceManager()
                         audio_path = await vm.synthesize_async(outbound.text)
                         if audio_path:
-                            ok = await send_native_voice_message(
+                            await send_native_voice_message(
                                 message.channel,
                                 audio_path,
-                                fallback_text=(
-                                    "Não consigo mandar voz nativa aqui. "
-                                    "Entra na call e fala: Yelena entra na call"
-                                ),
+                                fallback_text="Entra na call que eu falo aí.",
                             )
                             Path(audio_path).unlink(missing_ok=True)
-                            if ok:
-                                return
-                            return  # fallback_text já enviado dentro de send_native
+                            return
 
                     if outbound.text:
                         await message.channel.send(outbound.text[:1900])
                 except Exception:
                     logger.exception("discord handler failed")
                     try:
-                        await message.channel.send(
-                            "Tive um problema interno agora. Tenta de novo em instantes."
-                        )
+                        await message.channel.send("Tive um problema agora.")
                     except Exception:
                         pass
 
@@ -287,6 +293,6 @@ class DiscordAdapter(PlatformAdapter):
         return {
             "platform": self.platform_id,
             "status": "online" if self._started else "offline",
-            "stt": stt_available(),
+            "stt": stt_backend_name(),
             "mode": self._mode,
         }
