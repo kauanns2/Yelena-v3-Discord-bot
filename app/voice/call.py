@@ -9,11 +9,10 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from app.voice.listen import CallListener
-from app.voice.stt import stt_available
+from app.voice.stt import stt_available, stt_backend_name
 
 logger = logging.getLogger(__name__)
 
-# aceita cal / call / ligação / typos comuns
 JOIN_RE = re.compile(
     r"(?:"
     r"\b(?:liga|ligar|join)\b"
@@ -180,15 +179,15 @@ async def join_and_listen(
     if greeting_audio and Path(greeting_audio).is_file():
         await play_in_guild(guild, greeting_audio)
 
+    backend = stt_backend_name()
     if listen_ok:
+        extra = ""
+        if backend == "google_free":
+            extra = " (escuta gratuita — pode falhar se o Google limitar)"
         return (
-            "Entrei na call e tô te ouvindo. "
-            "Fala no microfone — eu transformo em texto, corrijo e respondo em voz."
-        )
-    if not stt_available():
-        return (
-            "Entrei na call, mas sem OPENAI_API_KEY eu não consigo ouvir o microfone. "
-            "Configura a chave no Render pra eu te escutar de verdade."
+            "Entrei na call e tô te ouvindo"
+            + extra
+            + ". Fala no microfone — eu transformo em texto, corrijo e respondo em voz."
         )
     return "Entrei na call. Escuta do microfone falhou — tenta de novo ou usa texto por enquanto."
 

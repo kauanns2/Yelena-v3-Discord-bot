@@ -1,23 +1,18 @@
 # Módulo Voice
 
-## Call (fluxo principal)
+## Escuta na call (STT) — sem obrigar OpenAI
 
-1. Você entra na call
-2. Pede pra Yelena entrar
-3. Você **fala no microfone**
-4. Ela escuta → STT (Whisper) → corrige texto → pensa → **responde falando na call**
+| Prioridade | Provider | Chave |
+|------------|----------|--------|
+| 1 | OpenAI Whisper | `OPENAI_API_KEY` |
+| 2 | Groq Whisper | `GROQ_API_KEY` (tier grátis) |
+| 3 | Google Web Speech | **nenhuma** (grátis, com limite) |
 
-Requisito: `OPENAI_API_KEY` no Render (Whisper).
+TTS (ela falar) continua com **edge-tts** (grátis, sem chave).
 
-## Chat
+## Call
 
-- Pediu áudio **fora** da call → tenta **mensagem de voz nativa** do Discord (não arquivo solto)
-- **Na** call → só fala no canal de voz
-
-## Env
-
-```text
-YELENA_VOICE_ENABLED=true
-YELENA_TTS_VOICE=pt-BR-FranciscaNeural
-OPENAI_API_KEY=sk-...
-```
+1. Entre na call
+2. `Yelena entra na call`
+3. Fale no microfone
+4. Ela responde em voz

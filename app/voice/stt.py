@@ -1,42 +1,65 @@
-"""Speech-to-text (opcional).
+"""Speech-to-text multi-provider (com e sem OpenAI).
 
 Prioridade:
-1. OPENAI_API_KEY → Whisper API
-2. sem chave → None (só texto / call outbound)
+1. OPENAI_API_KEY → Whisper
+2. GROQ_API_KEY → Whisper (tier grátis da Groq, se tiver)
+3. Google Web Speech via SpeechRecognition → **sem chave** (grátis, com limite)
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
+import subprocess
+import tempfile
 from pathlib import Path
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
 def stt_available() -> bool:
-    return bool(os.getenv("OPENAI_API_KEY", "").strip())
+    """Sempre True: Google free cobre o caso sem chave."""
+    return True
+
+
+def stt_backend_name() -> str:
+    if os.getenv("OPENAI_API_KEY", "").strip():
+        return "openai"
+    if os.getenv("GROQ_API_KEY", "").strip():
+        return "groq"
+    return "google_free"
 
 
 async def transcribe_file(path: str | Path, *, language: str = "pt") -> str | None:
     path = Path(path)
     if not path.is_file():
         return None
-    key = os.getenv("OPENAI_API_KEY", "").strip()
-    if not key:
-        logger.info("STT skipped: OPENAI_API_KEY not set")
-        return None
+
+    if os.getenv("OPENAI_API_KEY", "").strip():
+        text = await _openai_whisper(path, language=language)
+        if text:
+            return text
+
+    if os.getenv("GROQ_API_KEY", "").strip():
+        text = await _groq_whisper(path, language=language)
+        if text:
+            return text
+
+    return await _google_free(path, language=language)
+
+
+async def _openai_whisper(path: Path, *, language: str) -> str | None:
     try:
-        import urllib.request
         import json
-        # usa API HTTP simples sem dependência openai obrigatória
+        import urllib.request
+
+        key = os.getenv("OPENAI_API_KEY", "").strip()
         boundary = "----YelenaSTT"
         data = path.read_bytes()
         body = b""
         body += f"--{boundary}\r\n".encode()
-        body += b'Content-Disposition: form-data; name="model"\r\n\r\n'
-        body += b"whisper-1\r\n"
+        body += b'Content-Disposition: form-data; name="model"\r\n\r\nwhisper-1\r\n'
         body += f"--{boundary}\r\n".encode()
         body += b'Content-Disposition: form-data; name="language"\r\n\r\n'
         body += f"{language}\r\n".encode()
@@ -63,9 +86,140 @@ async def transcribe_file(path: str | Path, *, language: str = "pt") -> str | No
                 payload = json.loads(resp.read().decode("utf-8"))
                 return (payload.get("text") or "").strip() or None
 
-        import asyncio
+        return await asyncio.to_thread(_do)
+    except Exception:
+        logger.exception("OpenAI STT failed")
+        return None
+
+
+async def _groq_whisper(path: Path, *, language: str) -> str | None:
+    try:
+        import json
+        import urllib.request
+
+        key = os.getenv("GROQ_API_KEY", "").strip()
+        boundary = "----YelenaGroq"
+        data = path.read_bytes()
+        lang = "pt" if language.startswith("pt") else language
+        body = b""
+        body += f"--{boundary}\r\n".encode()
+        body += (
+            b'Content-Disposition: form-data; name="model"\r\n\r\n'
+            b"whisper-large-v3\r\n"
+        )
+        body += f"--{boundary}\r\n".encode()
+        body += b'Content-Disposition: form-data; name="language"\r\n\r\n'
+        body += f"{lang}\r\n".encode()
+        body += f"--{boundary}\r\n".encode()
+        body += (
+            f'Content-Disposition: form-data; name="file"; filename="{path.name}"\r\n'
+        ).encode()
+        body += b"Content-Type: application/octet-stream\r\n\r\n"
+        body += data + b"\r\n"
+        body += f"--{boundary}--\r\n".encode()
+
+        req = urllib.request.Request(
+            "https://api.groq.com/openai/v1/audio/transcriptions",
+            data=body,
+            headers={
+                "Authorization": f"Bearer {key}",
+                "Content-Type": f"multipart/form-data; boundary={boundary}",
+            },
+            method="POST",
+        )
+
+        def _do() -> str | None:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                payload = json.loads(resp.read().decode("utf-8"))
+                return (payload.get("text") or "").strip() or None
 
         return await asyncio.to_thread(_do)
     except Exception:
-        logger.exception("STT failed")
+        logger.exception("Groq STT failed")
         return None
+
+
+def _ffmpeg() -> str | None:
+    try:
+        import imageio_ffmpeg
+
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return None
+
+
+def _to_16k_mono_wav(src: Path) -> Path | None:
+    """Google Web Speech prefere 16 kHz mono WAV."""
+    ffmpeg = _ffmpeg()
+    if not ffmpeg:
+        return src if src.suffix.lower() == ".wav" else None
+    fd, out_str = tempfile.mkstemp(prefix="yelena_stt_", suffix=".wav")
+    os.close(fd)
+    out = Path(out_str)
+    try:
+        r = subprocess.run(
+            [
+                ffmpeg,
+                "-y",
+                "-i",
+                str(src),
+                "-ac",
+                "1",
+                "-ar",
+                "16000",
+                "-c:a",
+                "pcm_s16le",
+                str(out),
+            ],
+            capture_output=True,
+            timeout=30,
+        )
+        if r.returncode != 0 or not out.is_file() or out.stat().st_size < 64:
+            out.unlink(missing_ok=True)
+            return None
+        return out
+    except Exception:
+        out.unlink(missing_ok=True)
+        logger.exception("ffmpeg convert for STT failed")
+        return None
+
+
+async def _google_free(path: Path, *, language: str) -> str | None:
+    """STT grátis via Google Web Speech (SpeechRecognition). Sem API key."""
+
+    def _do() -> str | None:
+        try:
+            import speech_recognition as sr
+        except ImportError:
+            logger.error("SpeechRecognition not installed")
+            return None
+
+        wav = _to_16k_mono_wav(path)
+        if wav is None:
+            logger.warning("could not prepare wav for Google STT")
+            return None
+        cleanup = wav != path
+        try:
+            recognizer = sr.Recognizer()
+            with sr.AudioFile(str(wav)) as source:
+                audio = recognizer.record(source)
+            lang = "pt-BR" if language.startswith("pt") else language
+            text = recognizer.recognize_google(audio, language=lang)
+            return (text or "").strip() or None
+        except sr.UnknownValueError:
+            logger.info("Google STT: no speech recognized")
+            return None
+        except sr.RequestError as exc:
+            logger.warning("Google STT request error: %s", exc)
+            return None
+        except Exception:
+            logger.exception("Google STT failed")
+            return None
+        finally:
+            if cleanup:
+                try:
+                    wav.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+    return await asyncio.to_thread(_do)
