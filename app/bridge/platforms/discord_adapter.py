@@ -167,7 +167,6 @@ class DiscordAdapter(PlatformAdapter):
         if audio and Path(audio).is_file():
             try:
                 file = discord.File(audio, filename="yelena.mp3")
-                # texto curto + áudio
                 content = text if text else None
                 await channel.send(content=content, file=file)
             except Exception:
@@ -203,7 +202,7 @@ class DiscordAdapter(PlatformAdapter):
             try:
                 channel = await self._client.fetch_channel(int(message.channel_id))
             except Exception as exc:
-                raise PlatformError(f"Channel not found: {message.channel_id}") from exp
+                raise PlatformError(f"Channel not found: {message.channel_id}") from exc
         await self._send_outbound(channel, message)
 
     def health(self) -> dict[str, Any]:
