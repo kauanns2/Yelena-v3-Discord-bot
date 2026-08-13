@@ -9,8 +9,6 @@ from app.language.models.generation import GenerationRequest
 
 
 class InstructionBuilder:
-    """Converte ResponseSpecification (dict ou objeto) em GenerationRequest."""
-
     def from_spec(self, spec: Any) -> GenerationRequest:
         if hasattr(spec, "to_dict"):
             data = spec.to_dict()
@@ -29,7 +27,7 @@ class InstructionBuilder:
                 "correlation_id": getattr(spec, "correlation_id", None),
                 "should_ask_clarification": getattr(spec, "should_ask_clarification", False),
                 "clarification_question": getattr(spec, "clarification_question", None),
-                "metadata": getattr(spec, "metadata", {}),
+                "metadata": getattr(spec, "metadata", {}) or {},
             }
 
         length_raw = data.get("max_length", "medium")
@@ -38,10 +36,24 @@ class InstructionBuilder:
         except ValueError:
             length = LengthHint.MEDIUM
 
+        meta_in = dict(data.get("metadata") or {})
         instructions = self._build_instructions(data)
         style = {
             "tone": data.get("tone", "neutral"),
             **(data.get("style_hints") or {}),
+        }
+
+        # metadata completo para o LLM (teia)
+        meta_out = {
+            **meta_in,
+            "intent": data.get("intent", ""),
+            "decision_summary": data.get("decision_summary", ""),
+            "should_ask_clarification": data.get("should_ask_clarification", False),
+            "clarification_question": data.get("clarification_question"),
+            "user_text": meta_in.get("user_text") or "",
+            "identity_brief": meta_in.get("identity_brief") or "",
+            "emotion_summary": meta_in.get("emotion_summary") or {},
+            "personality_summary": meta_in.get("personality_summary") or {},
         }
 
         return GenerationRequest(
@@ -53,24 +65,16 @@ class InstructionBuilder:
             output_format=OutputFormat.TEXT,
             length=length,
             correlation_id=data.get("correlation_id"),
-            metadata={
-                "intent": data.get("intent", ""),
-                "decision_summary": data.get("decision_summary", ""),
-                "should_ask_clarification": data.get("should_ask_clarification", False),
-                "clarification_question": data.get("clarification_question"),
-                "user_text": (data.get("metadata") or {}).get("user_text", ""),
-            },
+            metadata=meta_out,
         )
 
     def _build_instructions(self, data: dict) -> str:
         parts = [
-            "Gere uma resposta natural em português brasileiro.",
+            "Responda como Yelena, em português brasileiro natural.",
             f"Tom: {data.get('tone', 'neutral')}.",
         ]
         if data.get("decision_summary"):
-            parts.append(f"Decisão/orientação: {data['decision_summary']}")
+            parts.append(f"Orientação de raciocínio: {data['decision_summary']}")
         for point in data.get("key_points") or []:
             parts.append(f"- {point}")
-        if data.get("should_ask_clarification") and data.get("clarification_question"):
-            parts.append(f"Pergunte: {data['clarification_question']}")
         return "\n".join(parts)

@@ -26,7 +26,12 @@ class LanguageManager:
         self._registry.register(LocalTemplateProvider())
         if llm_configured():
             self._registry.register(LLMChatProvider())
-            logger.info("LLM chat provider registered")
+            logger.info("LLM chat provider registered (priority high)")
+        else:
+            logger.warning(
+                "LLM NÃO configurado — só template local. "
+                "Defina GROQ_API_KEY ou OPENAI_API_KEY no Render."
+            )
 
     @property
     def is_started(self) -> bool:
@@ -34,10 +39,7 @@ class LanguageManager:
 
     def start(self) -> None:
         self._started = True
-        logger.info(
-            "language system started providers=%s",
-            self._registry.list_providers(),
-        )
+        logger.info("language system started providers=%s", self._registry.list_providers())
 
     def stop(self) -> None:
         self._started = False
@@ -68,17 +70,24 @@ class LanguageManager:
                 result = asyncio.get_event_loop().run_until_complete(provider.generate(request))
             result = postprocess(result, request.length)
             self._metrics["generations"] += 1
+            logger.info(
+                "language used provider=%s mode=%s",
+                result.provider_id,
+                (result.metadata or {}).get("mode"),
+            )
             return result
         except Exception as primary_exc:
-            logger.exception("primary provider failed: %s", primary_exc)
+            logger.error("primary provider failed (%s): %s", getattr(provider.info, "id", "?"), primary_exc)
             self._metrics["failures"] += 1
             try:
                 fallback = self._registry.require("local_template")
                 result = fallback.generate_sync(request)
                 result.status = GenerationStatus.FALLBACK
                 result.metadata["fallback_from"] = getattr(provider.info, "id", "unknown")
+                result.metadata["fallback_error"] = str(primary_exc)[:200]
                 result = postprocess(result, request.length)
                 self._metrics["fallbacks"] += 1
+                logger.warning("language FALLBACK to local_template")
                 return result
             except Exception as fb_exc:
                 self._metrics["failures"] += 1

@@ -1,4 +1,4 @@
-"""Pipeline seletivo de processamento."""
+"""Pipeline seletivo — teia alimenta a linguagem."""
 
 from __future__ import annotations
 
@@ -13,8 +13,6 @@ logger = logging.getLogger(__name__)
 
 
 class RequestPipeline:
-    """Combina módulos conforme complexidade — não executa tudo sempre."""
-
     def __init__(self, runtime: Any) -> None:
         self._rt = runtime
 
@@ -41,33 +39,21 @@ class RequestPipeline:
         emotion_summary: dict[str, Any] = {}
         identity_brief = ""
 
-        if complexity == Complexity.TRIVIAL:
-            if self._rt.emotion:
+        # Sempre puxa emotion + personality (teia mínima)
+        if self._rt.emotion:
+            try:
                 emotion_summary = self._rt.emotion.get_summary()
                 modules_used.append("emotion")
-            if self._rt.personality:
+            except Exception:
+                logger.exception("emotion summary failed")
+        if self._rt.personality:
+            try:
                 personality_summary = self._rt.personality.get_summary()
                 modules_used.append("personality")
-            if self._rt.memory and request.user_id:
-                try:
-                    result = self._rt.memory.recall_text(
-                        request.message,
-                        user_id=request.user_id,
-                        limit=2,
-                    )
-                    context_summary = [m.content for m in result.memories[:2]]
-                    if context_summary:
-                        modules_used.append("memory")
-                except Exception:
-                    pass
-        else:
-            if self._rt.emotion:
-                emotion_summary = self._rt.emotion.get_summary()
-                modules_used.append("emotion")
-            if self._rt.personality:
-                personality_summary = self._rt.personality.get_summary()
-                modules_used.append("personality")
+            except Exception:
+                logger.exception("personality summary failed")
 
+        if complexity != Complexity.TRIVIAL:
             if self._rt.context:
                 try:
                     ctx = self._rt.context.build_from_text(
@@ -100,11 +86,10 @@ class RequestPipeline:
 
             if complexity == Complexity.CRITICAL and self._rt.security:
                 try:
-                    identity_id = request.user_id or "anonymous"
                     from app.security.constants import RiskLevel
 
                     decision = self._rt.security.authorize(
-                        identity_id,
+                        request.user_id or "anonymous",
                         resource="action",
                         action="execute",
                         risk=RiskLevel.HIGH,
@@ -116,8 +101,20 @@ class RequestPipeline:
                     modules_used.append("security")
                 except Exception:
                     logger.exception("security authorize failed")
+        else:
+            if self._rt.memory and request.user_id:
+                try:
+                    result = self._rt.memory.recall_text(
+                        request.message,
+                        user_id=request.user_id,
+                        limit=2,
+                    )
+                    context_summary = [m.content for m in result.memories[:2]]
+                    if context_summary:
+                        modules_used.append("memory")
+                except Exception:
+                    pass
 
-        # Identity brief (sempre que der)
         try:
             from app.identity import build_identity_brief
 
@@ -128,6 +125,19 @@ class RequestPipeline:
             modules_used.append("identity")
         except Exception:
             logger.exception("identity brief failed")
+
+        # Sinal leve na teia neural (observável)
+        if self._rt.neural:
+            try:
+                if hasattr(self._rt.neural, "pulse"):
+                    self._rt.neural.pulse(
+                        source="runtime",
+                        kind="request",
+                        payload={"complexity": complexity.value},
+                    )
+                modules_used.append("neural")
+            except Exception:
+                pass
 
         spec = None
         if self._rt.conversation and session_id:
@@ -141,27 +151,36 @@ class RequestPipeline:
                     personality_summary=personality_summary,
                     emotion_summary=emotion_summary,
                 )
-                if "conversation" not in modules_used:
-                    modules_used.append("conversation")
-                # anexa brief no spec pra Language
-                if spec is not None and identity_brief:
+                if spec is not None:
                     if not getattr(spec, "metadata", None):
                         spec.metadata = {}
                     spec.metadata["identity_brief"] = identity_brief
-                    if identity_brief not in (spec.context_summary or []):
-                        # não joga brief no context_summary (evita eco); só metadata
-                        pass
+                    spec.metadata["emotion_summary"] = emotion_summary
+                    spec.metadata["personality_summary"] = personality_summary
+                    spec.metadata["user_text"] = request.message
+                if "conversation" not in modules_used:
+                    modules_used.append("conversation")
             except Exception:
                 logger.exception("conversation process_message failed")
 
         text = "..."
         confidence = 0.5
+        provider_used = "none"
         if self._rt.language and spec is not None:
             try:
                 result = self._rt.language.generate_from_spec(spec)
                 text = result.text
                 confidence = result.confidence
+                provider_used = getattr(result, "provider_id", "?") or result.metadata.get(
+                    "backend", "?"
+                )
                 modules_used.append("language")
+                logger.info(
+                    "reply provider=%s complexity=%s modules=%s",
+                    provider_used,
+                    complexity.value,
+                    ",".join(modules_used),
+                )
             except Exception:
                 logger.exception("language generate failed")
                 text = "; ".join(spec.key_points) if spec.key_points else request.message
@@ -188,17 +207,27 @@ class RequestPipeline:
             except Exception:
                 pass
 
+        if self._rt.memory and request.user_id and len(request.message) > 8:
+            try:
+                if hasattr(self._rt.memory, "remember_text"):
+                    self._rt.memory.remember_text(
+                        f"user:{request.message[:200]}",
+                        user_id=request.user_id,
+                        tags=["dialogue"],
+                    )
+                    self._rt.memory.remember_text(
+                        f"yelena:{text[:200]}",
+                        user_id=request.user_id,
+                        tags=["dialogue", "self"],
+                    )
+                    modules_used.append("memory_write")
+            except Exception:
+                pass
+
         if self._rt.observability:
             try:
                 self._rt.observability.metrics.incr(
                     "runtime_requests", complexity=complexity.value
-                )
-                self._rt.observability.logs.info(
-                    "request processed",
-                    module="runtime",
-                    correlation_id=request.id,
-                    complexity=complexity.value,
-                    modules=",".join(modules_used),
                 )
             except Exception:
                 pass
@@ -210,5 +239,8 @@ class RequestPipeline:
             complexity=complexity,
             modules_used=modules_used,
             confidence=confidence,
-            metadata={"decision_summary": decision_summary},
+            metadata={
+                "decision_summary": decision_summary,
+                "provider": provider_used,
+            },
         )
