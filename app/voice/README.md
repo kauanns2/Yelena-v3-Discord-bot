@@ -2,23 +2,13 @@
 
 ## Chat — mensagem de voz nativa
 
-Quando você pede áudio, a Yelena tenta enviar **voice message** do Discord (bolinha de áudio), não um arquivo solto com texto.
-
-```text
-Yelena manda um áudio
-```
+Quando o usuário pede áudio, a Yelena tenta enviar voice message nativa do Discord (player de áudio), sem texto + anexo juntos.
 
 ## Call (canal de voz)
 
-1. Entre numa call no servidor
-2. `Yelena entra na call` ou `Yelena liga`
-3. Ela conecta no seu canal e tenta falar
-4. `Yelena sai da call` para desconectar
+Ela pode entrar no canal de voz em que o usuário estiver e falar, e também sair quando pedido em linguagem natural.
 
-Permissões do bot no canal de voz:
-- Conectar
-- Falar
-- Usar VAD (opcional)
+Permissões no canal de voz: Conectar e Falar.
 
 ## Env
 
