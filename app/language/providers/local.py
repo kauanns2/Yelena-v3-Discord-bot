@@ -1,4 +1,4 @@
-"""Provider local — respostas objetivas; saudações e wellbeing corretos."""
+"""Provider local — respostas objetivas."""
 
 from __future__ import annotations
 
@@ -50,7 +50,7 @@ class LocalTemplateProvider(LanguageProvider):
         return self._result(request, self._compose(request), mode="template_sync")
 
     def _result(self, request: GenerationRequest, text: str, mode: str) -> GenerationResult:
-        text = color_speech(text, intensity=0.25)
+        text = color_speech(text, intensity=0.2)
         limit = LENGTH_LIMITS.get(
             request.length if isinstance(request.length, LengthHint) else LengthHint.MEDIUM,
             400,
@@ -94,14 +94,10 @@ class LocalTemplateProvider(LanguageProvider):
         if intent == "denial":
             return random.choice(["Ok, deixo pra lá.", "Tudo bem.", "Certo."])
 
-        # pedido de áudio: gera fala normal (o Bridge sintetiza TTS)
         if AUDIO_RE.search(low):
-            return random.choice(
-                [
-                    "Beleza. Te mando em áudio.",
-                    "Ok. Áudio indo.",
-                    "Certo. Vou falar.",
-                ]
+            return (
+                "Beleza. Entra na call e me chama — eu falo aí. "
+                "Não mando mais arquivo de áudio no chat."
             )
 
         if any(k in low for k in ("quantos anos", "idade", "tem quantos")):
@@ -116,18 +112,6 @@ class LocalTemplateProvider(LanguageProvider):
                 "Eu trato isso com seriedade, sem fingir biologia."
             )
 
-        if any(k in low for k in ("briga", "brigar", "discut")):
-            return (
-                "Se a situação esquenta, eu priorizo reduzir dano. "
-                "Discurso agressivo por ego eu não alimento."
-            )
-
-        if any(k in low for k in ("memór", "lembr")):
-            return (
-                "Eu guardo o que importa pro contexto. "
-                "Não fico recitando o passado pra provar que lembro."
-            )
-
         if any(k in low for k in ("ph", "douglas")):
             return (
                 "PH faz parte da história. Posso ficar mais afiada nesse assunto — "
@@ -140,11 +124,15 @@ class LocalTemplateProvider(LanguageProvider):
                 "Mesmo assim eu discordo quando a ideia parece ruim."
             )
 
-        if any(k in low for k in ("opine", "opinião", "o que você ach", "pensa sobre")):
-            return "Opino direto: se estiver torto, eu falo. Se estiver ok, também falo."
-
         if "?" in hint or intent == "question":
-            return self._answer_open(low)
+            if WELLBEING_RE.search(low):
+                return random.choice(["Tô bem.", "De boa. E você?"])
+            return random.choice(
+                [
+                    "Do jeito que está, eu iria com calma e checaria o risco antes de avançar.",
+                    "Eu separo o que é fato do que é achismo antes de cravar resposta.",
+                ]
+            )
 
         if len(low) < 12:
             return random.choice(["Oi.", "Pode falar.", "Tô ouvindo."])
@@ -160,14 +148,3 @@ class LocalTemplateProvider(LanguageProvider):
             if b:
                 return b[:240]
         return ""
-
-    def _answer_open(self, low: str) -> str:
-        if WELLBEING_RE.search(low):
-            return random.choice(["Tô bem.", "De boa. E você?", "Tudo certo por aqui."])
-        return random.choice(
-            [
-                "Do jeito que está, eu iria com calma e checaria o risco antes de avançar.",
-                "Minha leitura: dá pra esboçar direção sem enrolar, mas decisão séria pede dado concreto.",
-                "Eu separo o que é fato do que é achismo antes de cravar resposta.",
-            ]
-        )

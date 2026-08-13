@@ -1,29 +1,51 @@
-# Voice
+# Módulo Voice — Yelena
 
-## Perfil alvo (Yelena)
+Módulo **especializado** em voz e call. Não mistura com Language nem Discord core.
 
-Feminina ~20–23, russa em pt-BR, sotaque russo leve, conversa de call Discord (não narradora).
+## Responsabilidades
 
-Hoje a síntese usa **edge-tts** (`pt-BR-FranciscaNeural`) com rate/pitch ajustados.  
-Isso **não** clona voz real — é a melhor aproximação gratuita.  
-Quando houver amostra de voz, pluga clone (ElevenLabs / RVC / etc.) no `VoiceManager`.
+- Perfil vocal da Yelena
+- TTS (hoje edge-tts; depois clone)
+- Entrar / sair / falar em canal de voz
+- STT opcional (Whisper)
+- **Não** envia arquivo de áudio no chat
 
-## Call
+## Comportamento
 
-1. Entre num canal de voz
-2. Peça para ela entrar (linguagem natural)
-3. Enquanto ela estiver na **mesma call**, mensagens de texto viram **fala no canal de voz**
-4. Áudio anexo no chat pode virar texto se `OPENAI_API_KEY` estiver setada (Whisper)
+| Situação | O que acontece |
+|----------|----------------|
+| Pediu áudio **fora** da call | Resposta em texto + orienta entrar na call |
+| Pediu áudio **na** call | Fala no canal de voz |
+| Texto enquanto bot está na mesma call | Responde **falando** na call |
 
-Escuta contínua do microfone da call (STT em tempo real no voice channel) ainda é limitada no Discord bot — o caminho estável atual é texto na call → resposta em voz, ou áudio no chat → STT.
+## Perfil vocal
+
+Referência de **clareza / juventude** (tipo voz jovem e limpa), **puxada para realismo**:
+
+- ~20–23 anos, feminina
+- Sem tom de anime / dublagem exagerada
+- Call de Discord, não estúdio
+- pt-BR com leve coloração; clone futuro pode refinar sotaque russo
+
+## Estrutura
+
+```text
+app/voice/
+  profile.py      # identidade vocal
+  providers/      # TTS (edge, futuro clone)
+  call.py         # join / play / leave
+  stt.py          # opcional
+  manager.py      # fachada do módulo
+  native_message.py  # legado (desativado no envio de chat)
+```
 
 ## Env
 
 ```text
 YELENA_VOICE_ENABLED=true
 YELENA_TTS_VOICE=pt-BR-FranciscaNeural
-YELENA_TTS_RATE=+6%
-YELENA_TTS_PITCH=+3Hz
+YELENA_TTS_RATE=+2%
+YELENA_TTS_PITCH=+5Hz
 YELENA_VOICE_AUTO=0
-OPENAI_API_KEY=   # opcional, STT Whisper
+OPENAI_API_KEY=   # STT opcional
 ```

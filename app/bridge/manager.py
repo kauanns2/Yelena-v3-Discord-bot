@@ -19,8 +19,6 @@ logger = logging.getLogger(__name__)
 
 
 class BridgeManager:
-    """Ponto central do Módulo 17."""
-
     def __init__(self, process_fn: Callable[..., Any] | None = None) -> None:
         self.platforms = PlatformRegistry()
         self.continuity = ContinuityStore()
@@ -44,11 +42,7 @@ class BridgeManager:
         stored = self.continuity.get(ContinuityNamespace.SESSION, "map", default={})
         if isinstance(stored, dict):
             self._session_map.update({str(k): str(v) for k, v in stored.items()})
-        logger.info(
-            "bridge system started platforms=%s voice=%s",
-            self.platforms.list_ids(),
-            self.voice.is_enabled,
-        )
+        logger.info("bridge started voice=%s", self.voice.is_enabled)
 
     def stop(self) -> None:
         self._started = False
@@ -78,7 +72,8 @@ class BridgeManager:
             if inbound.session_id and inbound.session_id in self._session_map.values():
                 session_id = inbound.session_id
 
-            prefer = wants_audio(inbound.text)
+            prefer_voice = wants_audio(inbound.text)
+            in_call = bool((inbound.metadata or {}).get("in_voice_with_bot"))
 
             result = self._process_fn(
                 inbound.text,
@@ -92,65 +87,44 @@ class BridgeManager:
             new_session = getattr(result, "session_id", None)
             if new_session:
                 self._session_map[session_key] = str(new_session)
-                try:
-                    self.continuity.put(
-                        ContinuityNamespace.SESSION,
-                        session_key,
-                        str(new_session),
-                        metadata={
-                            "platform": inbound.platform,
-                            "user_id": inbound.user_id,
-                        },
-                    )
-                except Exception:
-                    logger.exception("continuity session put failed")
 
-            audio_path = None
-            if prefer and self.voice.is_enabled and text:
-                # se o texto for só aviso de "áudio não ligado", não sintetiza
-                low = text.lower()
-                if "módulo de voz ainda" not in low and "áudio ainda não" not in low:
-                    path = self.voice.synthesize(text)
-                    if path is not None:
-                        audio_path = str(path)
+            # NÃO anexa arquivo de áudio no chat.
+            # Voz só na call (Discord adapter toca no voice channel).
+            if prefer_voice and not in_call:
+                text = (
+                    (text + "\n\n" if text else "")
+                    + "Pra eu falar em voz, me chama na call — não mando mais arquivo de áudio no chat."
+                )
 
             try:
-                complexity = getattr(result, "complexity", None)
-                complexity_val = (
-                    complexity.value if hasattr(complexity, "value") else str(complexity or "")
-                )
                 self.evolution.record(
                     kind="interaction",
                     description=f"message via {inbound.platform}",
                     source_module="bridge",
                     payload={
                         "platform": inbound.platform,
-                        "user_id": inbound.user_id,
-                        "complexity": complexity_val,
-                        "audio": bool(audio_path),
+                        "prefer_voice": prefer_voice,
+                        "in_call": in_call,
                     },
                     confidence=float(getattr(result, "confidence", 0.5) or 0.5),
                 )
             except Exception:
-                logger.exception("evolution record failed")
+                pass
 
             return OutboundMessage(
                 text=text,
                 channel_id=inbound.channel_id,
                 user_id=inbound.user_id,
                 reply_to=inbound.id,
-                audio_path=audio_path,
-                prefer_audio=prefer,
+                audio_path=None,  # nunca arquivo no chat
+                prefer_audio=prefer_voice and in_call,
+                metadata={"speak_in_voice": prefer_voice or in_call},
             )
 
         try:
             return _process()
         except Exception:
-            logger.exception(
-                "bridge handle_inbound failed platform=%s user=%s",
-                inbound.platform,
-                inbound.user_id,
-            )
+            logger.exception("bridge handle_inbound failed")
             return OutboundMessage(
                 text="Algo deu errado por aqui. Pode repetir?",
                 channel_id=inbound.channel_id,
