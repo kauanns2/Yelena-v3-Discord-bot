@@ -1,4 +1,4 @@
-"""Entrar em canal de voz e falar (ligação)."""
+"""Canal de voz Discord — entrar, falar, sair, responder na call."""
 
 from __future__ import annotations
 
@@ -16,6 +16,8 @@ JOIN_RE = re.compile(
     re.I,
 )
 LEAVE_RE = re.compile(r"\b(sai da call|sair da call|desconecta|leave|hang up)\b", re.I)
+
+# guild_id -> voice client ref helper via discord guild.voice_client
 
 
 def is_join_request(text: str) -> bool:
@@ -49,6 +51,32 @@ async def leave_voice(client: Any, guild: Any) -> str:
         return "Não consegui sair da call."
 
 
+async def play_in_guild(guild: Any, audio_path: str | Path) -> bool:
+    """Toca áudio no voice client atual do guild."""
+    import discord
+
+    if guild is None:
+        return False
+    vc = guild.voice_client
+    if vc is None or not vc.is_connected():
+        return False
+    path = Path(audio_path)
+    if not path.is_file():
+        return False
+    ffmpeg = _ffmpeg()
+    if ffmpeg is None:
+        return False
+    try:
+        source = discord.FFmpegPCMAudio(str(path), executable=ffmpeg, options="-vn")
+        if vc.is_playing():
+            vc.stop()
+        vc.play(source)
+        return True
+    except Exception:
+        logger.exception("play_in_guild failed")
+        return False
+
+
 async def join_and_speak(
     client: Any,
     message: Any,
@@ -56,7 +84,6 @@ async def join_and_speak(
     *,
     speak_text_fallback: str = "",
 ) -> str:
-    """Entra no canal de voz do autor e toca o áudio se houver."""
     import discord
 
     author = message.author
@@ -68,7 +95,6 @@ async def join_and_speak(
     if guild is None:
         return "Call só funciona em servidor, não em DM."
 
-    # permissão
     me = guild.me or guild.get_member(client.user.id)
     if me is not None:
         perms = channel.permissions_for(me)
@@ -86,23 +112,9 @@ async def join_and_speak(
         return "Não consegui entrar na call. Confere permissão Conectar/Falar."
 
     if audio_path and Path(audio_path).is_file():
-        ffmpeg = _ffmpeg()
-        if ffmpeg is None:
-            return "Entrei na call, mas falta ffmpeg no servidor pra eu falar."
-        try:
-            # aponta ffmpeg do imageio
-            os.environ.setdefault("FFMPEG_PATH", ffmpeg)
-            source = discord.FFmpegPCMAudio(
-                str(audio_path),
-                executable=ffmpeg,
-                options="-vn",
-            )
-            if vc.is_playing():
-                vc.stop()
-            vc.play(source)
-            return "Entrei na call e tô falando."
-        except Exception:
-            logger.exception("voice play failed")
-            return "Entrei na call, mas não consegui tocar o áudio."
+        ok = await play_in_guild(guild, audio_path)
+        if ok:
+            return "Entrei na call. Pode falar comigo por texto que eu respondo em voz — ou manda áudio no chat."
+        return "Entrei na call, mas não consegui tocar o áudio."
 
-    return "Entrei na call." + (" " + speak_text_fallback if speak_text_fallback else "")
+    return "Entrei na call. Pode falar comigo por texto que eu respondo em voz."

@@ -1,4 +1,4 @@
-"""Adapter Discord — voz nativa no chat + call."""
+"""Adapter Discord — voz nativa, call e resposta falada na call."""
 
 from __future__ import annotations
 
@@ -17,8 +17,15 @@ from app.bridge.platforms.base import (
     OutboundMessage,
     PlatformAdapter,
 )
-from app.voice.call import is_join_request, is_leave_request, join_and_speak, leave_voice
+from app.voice.call import (
+    is_join_request,
+    is_leave_request,
+    join_and_speak,
+    leave_voice,
+    play_in_guild,
+)
 from app.voice.native_message import send_native_voice_message
+from app.voice.stt import stt_available, transcribe_file
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +56,6 @@ class DiscordAdapter(PlatformAdapter):
     def _should_respond(self, message: Any) -> bool:
         if self._mode == "always":
             return True
-
         try:
             if message.guild is None:
                 return True
@@ -69,17 +75,44 @@ class DiscordAdapter(PlatformAdapter):
 
         if NAME_RE.search(content):
             return True
-
         if is_join_request(content) or is_leave_request(content):
             return True
 
+        # se bot está na mesma call do autor, responde texto curto sem precisar do nome
+        try:
+            guild = message.guild
+            author = message.author
+            if (
+                guild
+                and guild.voice_client
+                and guild.voice_client.is_connected()
+                and getattr(author, "voice", None)
+                and author.voice
+                and author.voice.channel
+                and guild.voice_client.channel
+                and author.voice.channel.id == guild.voice_client.channel.id
+            ):
+                return True
+        except Exception:
+            pass
+
         if self._mode == "mention":
             return False
-
         if INTEREST_RE.search(content) and random.random() < 0.12:
             return True
-
         return False
+
+    def _bot_in_same_call(self, message: Any) -> bool:
+        try:
+            guild = message.guild
+            author = message.author
+            if not guild or not guild.voice_client or not guild.voice_client.is_connected():
+                return False
+            if not getattr(author, "voice", None) or not author.voice or not author.voice.channel:
+                return False
+            return author.voice.channel.id == guild.voice_client.channel.id
+        except Exception:
+            return False
 
     async def start(self) -> None:
         if not self._token:
@@ -108,9 +141,10 @@ class DiscordAdapter(PlatformAdapter):
             async def on_ready(self) -> None:  # type: ignore[override]
                 adapter._started = True
                 logger.info(
-                    "discord adapter online user=%s mode=%s",
+                    "discord adapter online user=%s mode=%s stt=%s",
                     str(self.user),
                     adapter._mode,
+                    stt_available(),
                 )
 
             async def on_message(self, message: discord.Message) -> None:  # type: ignore[override]
@@ -118,56 +152,59 @@ class DiscordAdapter(PlatformAdapter):
                     return
                 if adapter._handler is None:
                     return
-                if not (message.content or "").strip():
+
+                content = (message.content or "").strip()
+
+                # áudio anexo → STT (se disponível)
+                if not content and message.attachments:
+                    for att in message.attachments:
+                        name = (att.filename or "").lower()
+                        if name.endswith((".ogg", ".mp3", ".wav", ".m4a", ".webm")):
+                            if not stt_available():
+                                if NAME_RE.search(str(message.mentions)) or True:
+                                    # só reage se mencão/nome implícito difícil — pede texto
+                                    if adapter._should_respond(message) or adapter._bot_in_same_call(
+                                        message
+                                    ):
+                                        await message.channel.send(
+                                            "Recebi o áudio, mas STT ainda não está configurado "
+                                            "(OPENAI_API_KEY). Por enquanto fala por texto na call."
+                                        )
+                                return
+                            try:
+                                path = Path(f"/tmp/yelena_in_{message.id}_{name}")
+                                await att.save(str(path))
+                                text = await transcribe_file(path)
+                                path.unlink(missing_ok=True)
+                                if text:
+                                    content = text
+                                    break
+                            except Exception:
+                                logger.exception("attachment STT failed")
+                            return
+
+                if not content:
                     return
                 if not adapter._should_respond(message):
                     return
 
-                content = message.content or ""
-
-                # --- call / leave (antes do pipeline de chat) ---
-                if is_leave_request(content) and NAME_RE.search(content):
+                if is_leave_request(content) and (
+                    NAME_RE.search(content) or adapter._bot_in_same_call(message)
+                ):
                     text = await leave_voice(self, message.guild)
                     await message.channel.send(text)
                     return
 
-                if is_join_request(content) and (NAME_RE.search(content) or True):
-                    # sintetiza fala curta se bridge tiver voice via handler
-                    inbound = InboundMessage(
-                        text=content,
-                        user_id=str(message.author.id),
-                        channel_id=str(message.channel.id),
-                        platform=PlatformId.DISCORD.value,
-                        correlation_id=str(message.id),
-                    )
-                    try:
-                        result = adapter._handler(inbound)
-                        if hasattr(result, "__await__"):
-                            outbound = await result  # type: ignore[misc]
-                        else:
-                            outbound = result
-                    except Exception:
-                        outbound = None
+                if is_join_request(content):
+                    from app.voice.manager import VoiceManager
 
-                    audio = getattr(outbound, "audio_path", None) if outbound else None
-                    # se não gerou áudio no pedido de call, tenta texto curto
-                    if not audio:
-                        try:
-                            from app.voice.manager import VoiceManager
-
-                            vm = VoiceManager()
-                            p = await vm.synthesize_async("Oi. Entrei na call.")
-                            audio = str(p) if p else None
-                        except Exception:
-                            audio = None
-
+                    vm = VoiceManager()
+                    p = await vm.synthesize_async("Oi. Entrei na call. Pode falar comigo.")
+                    audio = str(p) if p else None
                     status = await join_and_speak(self, message, audio)
                     await message.channel.send(status)
                     if audio:
-                        try:
-                            Path(audio).unlink(missing_ok=True)
-                        except Exception:
-                            pass
+                        Path(audio).unlink(missing_ok=True)
                     return
 
                 inbound = InboundMessage(
@@ -175,11 +212,11 @@ class DiscordAdapter(PlatformAdapter):
                     user_id=str(message.author.id),
                     channel_id=str(message.channel.id),
                     platform=PlatformId.DISCORD.value,
-                    session_id=None,
                     correlation_id=str(message.id),
                     metadata={
                         "guild_id": str(message.guild.id) if message.guild else None,
                         "author_name": str(message.author),
+                        "in_voice_with_bot": adapter._bot_in_same_call(message),
                     },
                 )
 
@@ -188,9 +225,29 @@ class DiscordAdapter(PlatformAdapter):
                     if hasattr(result, "__await__"):
                         outbound = await result  # type: ignore[misc]
                     else:
-                        outbound = result  # type: ignore[assignment]
+                        outbound = result
                     if not outbound:
                         return
+
+                    # se estamos na mesma call → responde em voz no canal de voz
+                    if adapter._bot_in_same_call(message) and outbound.text:
+                        from app.voice.manager import VoiceManager
+
+                        vm = VoiceManager()
+                        audio_path = await vm.synthesize_async(outbound.text)
+                        if audio_path and message.guild:
+                            played = await play_in_guild(message.guild, audio_path)
+                            Path(audio_path).unlink(missing_ok=True)
+                            if played:
+                                # opcional: eco texto curto no chat
+                                if os.getenv("YELENA_VOICE_CHAT_ECHO", "false").lower() in {
+                                    "1",
+                                    "true",
+                                    "yes",
+                                }:
+                                    await message.channel.send(outbound.text[:1900])
+                                return
+
                     await adapter._send_outbound(message.channel, outbound)
                 except Exception:
                     logger.exception("discord handler failed")
@@ -213,15 +270,11 @@ class DiscordAdapter(PlatformAdapter):
 
         if audio and Path(audio).is_file():
             try:
-                # só voz nativa — sem texto junto (igual mensagem de voz do app)
                 ok = await send_native_voice_message(channel, audio, fallback_text=text)
                 if not ok and text:
                     await channel.send(text)
             finally:
-                try:
-                    Path(audio).unlink(missing_ok=True)
-                except Exception:
-                    pass
+                Path(audio).unlink(missing_ok=True)
             return
 
         if text:
@@ -243,10 +296,7 @@ class DiscordAdapter(PlatformAdapter):
             raise PlatformError("Discord client not started")
         channel = self._client.get_channel(int(message.channel_id))
         if channel is None:
-            try:
-                channel = await self._client.fetch_channel(int(message.channel_id))
-            except Exception as exc:
-                raise PlatformError(f"Channel not found: {message.channel_id}") from exc
+            channel = await self._client.fetch_channel(int(message.channel_id))
         await self._send_outbound(channel, message)
 
     def health(self) -> dict[str, Any]:
@@ -255,4 +305,5 @@ class DiscordAdapter(PlatformAdapter):
             "status": "online" if self._started else "offline",
             "token_configured": bool(self._token),
             "mode": self._mode,
+            "stt": stt_available(),
         }
